@@ -60,11 +60,12 @@ func LoadPal(fname string) (*PAL, error) {
 		pallet := make([]color.RGBA, 0x100)
 		for i := 0; i < 0x100; i++ {
 			si := i * 4
+
 			clr := color.RGBA{
 				R: palbuf[si],
 				G: palbuf[si+1],
 				B: palbuf[si+2],
-				A: palbuf[si+3],
+				A: 0xff,
 			}
 
 			// apply pallet remapping
@@ -73,7 +74,7 @@ func LoadPal(fname string) (*PAL, error) {
 
 			remap := []int{0, 2, 1, 3}
 
-			newpos := blockpos + (remap[blockid%4]+blockid/4)*8
+			newpos := blockpos + (remap[blockid%4]+(blockid/4)*4)*8
 
 			pallet[newpos] = clr
 		}
@@ -109,7 +110,6 @@ func ImageFromGfx(fgfxname string, pal []color.RGBA) (image.Image, error) {
 		return img, err
 	}
 
-	i := 0
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
 
@@ -120,58 +120,12 @@ func ImageFromGfx(fgfxname string, pal []color.RGBA) (image.Image, error) {
 
 			byte_num := ((y >> 1) & 1) + ((x >> 2) & 2) // 0,1,2,3
 
-			//			buf[(y * width) + x] = swizzled[block_location + column_location + byte_num];
+			datapos := block_location + column_location + byte_num
+			palpos := data[datapos]
 
-			col := pal[data[block_location+column_location+byte_num]]
+			col := pal[palpos]
 
-			//col := pal[data[i]]
-			r, g, b, a := col.RGBA()
-
-			/*
-				void swizzle(unsigned char* out, unsigned char* in, unsigned int width, unsigned int height)
-				{
-				   unsigned int i,j;
-				   unsigned int rowblocks = (width / 16);
-
-				   for (j = 0; j < height; ++j)
-				   {
-				      for (i = 0; i < width; ++i)
-				      {
-				         unsigned int blockx = i / 16;
-				         unsigned int blocky = j / 8;
-
-				         unsigned int x = (i - blockx*16);
-				         unsigned int y = (j - blocky*8);
-				         unsigned int block_index = blockx + ((blocky) * rowblocks);
-				         unsigned int block_address = block_index * 16 * 8;
-
-				         out[block_address + x + y * 16] = in[i+j*width];
-				      }
-				   }
-				}
-
-				_, _, _, a := pal[data[i]].RGBA()
-				r, _, _, _ := pal[data[i+1]].RGBA()
-				_, g, _, _ := pal[data[i+2]].RGBA()
-				_, _, b, _ := pal[data[i+3]].RGBA()
-			*/
-			/*
-				blockx := x / 16
-				blocky := y / 8
-
-				realx := (x - blockx*16)
-				realy := (y - blocky*8)
-
-				block_index := blockx + ((blocky) * (width / 16))
-				block_address := block_index * 16 * 8
-
-				outpos := block_address + realx + realy*16
-			*/
-
-			// img.SetRGBA(outpos%width, outpos/width, color.RGBA{R: uint8(r), G: uint8(g), B: uint8(b), A: uint8(a)})
-			img.SetRGBA(x, y, color.RGBA{R: uint8(r), G: uint8(g), B: uint8(b), A: uint8(a)})
-			log.Println(img.At(x, y).RGBA())
-			i++
+			img.SetRGBA(x, y, col)
 		}
 	}
 
