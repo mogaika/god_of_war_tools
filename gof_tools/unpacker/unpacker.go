@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
 	"flag"
@@ -11,6 +10,8 @@ import (
 	"os"
 	"path"
 	"strconv"
+
+	"../utils"
 )
 
 const SectorSize = 0x800
@@ -20,14 +21,6 @@ type File struct {
 	Pack     uint32
 	Size     uint32
 	StartSec uint32
-}
-
-func byteToString(bs []byte) string {
-	n := bytes.IndexByte(bs, 0)
-	if n < 0 {
-		n = len(bs)
-	}
-	return string(bs[0:n])
 }
 
 func ParseTok(tok_file string) ([]*File, error) {
@@ -55,7 +48,7 @@ func ParseTok(tok_file string) ([]*File, error) {
 		}
 
 		file := &File{
-			Name:     byteToString(buffer[0:12]),
+			Name:     utils.BytesToString(buffer[0:12]),
 			Pack:     binary.LittleEndian.Uint32(buffer[12:16]),
 			Size:     binary.LittleEndian.Uint32(buffer[16:20]),
 			StartSec: binary.LittleEndian.Uint32(buffer[20:24])}
