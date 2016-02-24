@@ -132,8 +132,6 @@ func Unpack(game_folder string, out_folder string) error {
 		}
 	}
 
-	//part, err := os.OpenFile(getPackName(game_folder, 1), os.O_RDONLY, 0777)
-
 	return nil
 }
 

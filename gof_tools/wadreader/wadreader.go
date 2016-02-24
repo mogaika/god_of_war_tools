@@ -90,9 +90,12 @@ func main() {
 	flag.Parse()
 	args := flag.Args()
 
-	wad := `E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\GODOFWAR_BACKUP\pack\R_HERO0.WAD`
+	var wad string
+
 	if len(args) > 0 {
 		wad = args[0]
+	} else {
+		log.Fatalln("Missed argument")
 	}
 
 	out := wad + "_unpacked"
