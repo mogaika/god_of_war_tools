@@ -11,6 +11,18 @@ Usage: *./unpacker path_to_game_folder [path_to_store_files]*
 
 path_to_store_files default is *path_to_game_folder + /pack*
 
+Known formats:
+
+| Format | Info |
+|-------:|:-----|
+| PSS/PSW | mpeg videos (without sound). PSS without headers (or not)|
+| WAD | game archives, can use [Wadreader](#Wadreader) to unpack |
+| VAG/VA1-5 | VAGp ADPCM sounds (depended on language) |
+| VPK | RAW ADPCM music |
+| TXT | SANITY.TXT used for check archive validity |
+
+After unpaking, summary size of all files being lower, then size of archive. This is because, archive dublicate alot of files for faster access on disk.
+
 # Wadreader (GoW1)
 Tool for unpaking *.wad files. Probably not unpack all.
 

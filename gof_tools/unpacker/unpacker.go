@@ -205,28 +205,15 @@ func Unpack(game_folder string, out_folder string, version int) error {
 		return errors.New("Unknown tok version for parsing")
 	}
 
-	packsizes := make(map[uint32]uint64, 0)
-	for _, f := range files {
-		fend := uint64(f.StartSec) + (uint64(f.Size)+SectorSize-1)/SectorSize
-		if ps, ok := packsizes[f.Pack]; !ok || ps < fend {
-			packsizes[f.Pack] = fend
-		}
-	}
-
 	packpresents := make(map[uint32]bool, 0)
-	for ps := range packsizes {
-		log.Printf("Pack %v size 0x%.x Mb 0x%x Sec\n", ps, packsizes[ps]*SectorSize, packsizes[ps])
-
-		if f, err := os.OpenFile(getPackName(game_folder, ps), os.O_RDONLY, 0777); err == nil {
-			packpresents[ps] = true
-			f.Close()
-		}
-	}
-
 	for _, f := range files {
-		if !packpresents[f.Pack] {
-			f.StartSec += uint32(packsizes[f.Pack-1])
-			f.Pack--
+		if _, ok := packpresents[f.Pack]; !ok {
+			if fl, err := os.OpenFile(getPackName(game_folder, f.Pack), os.O_RDONLY, 0777); err == nil {
+				packpresents[f.Pack] = true
+				fl.Close()
+			} else {
+				packpresents[f.Pack] = false
+			}
 		}
 	}
 
@@ -294,9 +281,11 @@ func main() {
 	flag.Parse()
 	args := flag.Args()
 
-	game := `E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\`
+	game := ""
 	if len(args) > 0 {
 		game = args[0]
+	} else {
+		log.Fatalln("Argument: path_to_game_folder")
 	}
 
 	out := path.Join(game, "pack")
