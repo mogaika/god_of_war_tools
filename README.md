@@ -2,16 +2,18 @@
 
 # Unpacker (GoW1 + GoW2)
 Tool for unpaking part\*.pak files using info from *GODOFWAR.TOC*
+
 Autodetecting version of GoW
 
 **GoW1 Tested only on 1-dvd version with part1.pak file**
-**GoW1 Tested only on 1-dvd version with part1-5.pak files**
+
+**GoW2 Tested only on 1-dvd version with part1-5.pak files**
 
 Usage: *./unpacker path_to_game_folder [path_to_store_files]*
 
 path_to_store_files default is *path_to_game_folder + /pack*
 
-Known formats:
+Formats in archive:
 
 | Format | Info |
 |-------:|:-----|
@@ -21,7 +23,7 @@ Known formats:
 | VPK | RAW ADPCM music |
 | TXT | SANITY.TXT used for check archive validity |
 
-After unpaking, summary size of all files being lower, then size of archive. This is because, archive dublicate alot of files for faster access on disk.
+After unpaking, summary size of all files being lower then size of archive. This is because, archive dublicate files for faster access on disk.
 
 # Wadreader (GoW1)
 Tool for unpaking *.wad files. Probably not unpack all.
