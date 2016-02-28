@@ -34,7 +34,7 @@ Usage: *./wadreader path_to_wad_file [path_to_store_files]*
 
 path_to_store_files default is *path_to_wad_file + _unpacked*
 
-# gfx2img (GoW1)
+# gfx2img (GoW1 + GoW2)
 Convert gfx + pal textures to png image
 
 Usage: *./gfx2img path_to_gfx_file [--pal custom_pallete_file] [--output_file_name]*
