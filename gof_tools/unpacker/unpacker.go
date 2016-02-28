@@ -17,10 +17,10 @@ import (
 const SectorSize = 0x800
 
 type File struct {
-	Name     string
 	Pack     uint32
 	Size     uint32
 	StartSec uint32
+	Count    int
 }
 
 const (
@@ -62,7 +62,7 @@ func DetectTokVersion(tok_file string) (int, error) {
 }
 
 // GOF 1
-func ParseTok1(tok_file string) ([]*File, error) {
+func ParseTok1(tok_file string) (map[string]*File, error) {
 	file, err := os.OpenFile(tok_file, os.O_RDONLY, 0777)
 	if err != nil {
 		return nil, err
@@ -70,34 +70,41 @@ func ParseTok1(tok_file string) ([]*File, error) {
 	defer file.Close()
 
 	buffer := make([]byte, 24)
-	files := make([]*File, 0)
+	files := make(map[string]*File, 0)
 
 	for {
-		n, err := file.Read(buffer)
-		if err != nil {
-			if err == io.EOF {
-				if n != 0 && n != 24 {
-					return nil, errors.New("Bad file format (not 24 stuct array)")
-				} else {
-					return files, nil
-				}
-			} else {
-				return nil, err
-			}
+		_, err := file.Read(buffer)
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			return nil, err
+		}
+
+		name := utils.BytesToString(buffer[0:12])
+		if name == "" {
+			break
 		}
 
 		file := &File{
-			Name:     utils.BytesToString(buffer[0:12]),
-			Pack:     0,
+			Pack:     binary.LittleEndian.Uint32(buffer[12:16]),
 			Size:     binary.LittleEndian.Uint32(buffer[16:20]),
 			StartSec: binary.LittleEndian.Uint32(buffer[20:24])}
 
-		files = append(files, file)
+		if _, ok := files[name]; ok {
+			files[name].Count++
+			if files[name].Size != file.Size {
+				log.Printf("File is not copy %s\n", name)
+			}
+		} else {
+			files[name] = file
+		}
 	}
+
+	return files, nil
 }
 
 // GOF 2
-func ParseTok2(tok_file string) ([]*File, error) {
+func ParseTok2(tok_file string) (map[string]*File, error) {
 	const SectorsInFile = (0x3FFFF800 / SectorSize)
 	file, err := os.OpenFile(tok_file, os.O_RDONLY, 0777)
 	if err != nil {
@@ -116,7 +123,7 @@ func ParseTok2(tok_file string) ([]*File, error) {
 	maxindex := uint32(0)
 
 	buffer = make([]byte, 36)
-	files := make([]*File, 0)
+	files := make(map[string]*File)
 
 	for i := uint32(0); i < fcount; i++ {
 		_, err := file.Read(buffer)
@@ -124,12 +131,20 @@ func ParseTok2(tok_file string) ([]*File, error) {
 			return nil, err
 		}
 
+		name := utils.BytesToString(buffer[0:24])
 		file := &File{
-			Name:     utils.BytesToString(buffer[0:24]),
 			Size:     binary.LittleEndian.Uint32(buffer[24:28]),
 			StartSec: binary.LittleEndian.Uint32(buffer[32:36])}
 
-		files = append(files, file)
+		if _, ok := files[name]; ok {
+			files[name].Count++
+			if files[name].Size != file.Size {
+				log.Printf("File is not copy %s\n", name)
+			}
+		} else {
+			files[name] = file
+		}
+
 		if file.StartSec > maxindex {
 			maxindex = file.StartSec
 		}
@@ -173,7 +188,7 @@ func Unpack(game_folder string, out_folder string, version int) error {
 		log.Printf("Detected tok version: %v\n", version)
 	}
 
-	var files []*File
+	var files map[string]*File
 
 	switch version {
 	case TOK_VERSION_GOW_1_1DVD:
@@ -192,17 +207,26 @@ func Unpack(game_folder string, out_folder string, version int) error {
 
 	packsizes := make(map[uint32]uint64, 0)
 	for _, f := range files {
-		fsize := uint64(f.Size) + uint64(f.StartSec*SectorSize)
-		if ps, ok := packsizes[f.Pack]; !ok || ps < fsize {
-			packsizes[f.Pack] = fsize
+		fend := uint64(f.StartSec) + (uint64(f.Size)+SectorSize-1)/SectorSize
+		if ps, ok := packsizes[f.Pack]; !ok || ps < fend {
+			packsizes[f.Pack] = fend
 		}
 	}
 
 	packpresents := make(map[uint32]bool, 0)
 	for ps := range packsizes {
+		log.Printf("Pack %v size 0x%.x Mb 0x%x Sec\n", ps, packsizes[ps]*SectorSize, packsizes[ps])
+
 		if f, err := os.OpenFile(getPackName(game_folder, ps), os.O_RDONLY, 0777); err == nil {
 			packpresents[ps] = true
 			f.Close()
+		}
+	}
+
+	for _, f := range files {
+		if !packpresents[f.Pack] {
+			f.StartSec += uint32(packsizes[f.Pack-1])
+			f.Pack--
 		}
 	}
 
@@ -215,7 +239,9 @@ func Unpack(game_folder string, out_folder string, version int) error {
 		}
 	}()
 
-	for i, f := range files {
+	i := 0
+	for name, f := range files {
+		i++
 		if packpresents[f.Pack] {
 			if f.Pack != curpart {
 				newdisk, err := os.OpenFile(getPackName(game_folder, f.Pack), os.O_RDONLY, 0777)
@@ -228,7 +254,7 @@ func Unpack(game_folder string, out_folder string, version int) error {
 				disk = newdisk
 			}
 
-			fo, err := os.OpenFile(path.Join(out_folder, f.Name), os.O_CREATE|os.O_WRONLY, 0777)
+			fo, err := os.OpenFile(path.Join(out_folder, name), os.O_CREATE|os.O_WRONLY, 0777)
 			if err != nil {
 				return err
 			}
@@ -236,7 +262,7 @@ func Unpack(game_folder string, out_folder string, version int) error {
 
 			disk.Seek(int64(f.StartSec*SectorSize), os.SEEK_SET)
 
-			log.Printf("[%.4d/%.4d] Unpaking (pk: %v beg:%.8x sz:%.8x) %s \n", i, len(files), f.Pack+1, f.StartSec*SectorSize, f.Size, f.Name)
+			log.Printf("[%.4d/%.4d] Unpaking (pk: %v beg:%.8x sz:%.8x) %s \n", i, len(files), f.Pack+1, f.StartSec*SectorSize, f.Size, name)
 
 			wrtd, err := io.CopyN(fo, disk, int64(f.Size))
 			if err == io.EOF && wrtd != int64(f.Size) {
@@ -268,7 +294,7 @@ func main() {
 	flag.Parse()
 	args := flag.Args()
 
-	game := `E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\GODOFWAR_BACKUP`
+	game := `E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\`
 	if len(args) > 0 {
 		game = args[0]
 	}
