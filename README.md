@@ -25,8 +25,10 @@ Formats in archive:
 
 After unpaking, summary size of all files being lower then size of archive. This is because, archive dublicate files for faster access on disk.
 
-# Wadreader (GoW1)
+# Wadreader (GoW1 + GoW2)
 Tool for unpaking *.wad files. Probably not unpack all.
+
+Autodetecting version of GoW
 
 Usage: *./wadreader path_to_wad_file [path_to_store_files]*
 
