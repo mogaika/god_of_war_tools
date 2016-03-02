@@ -78,7 +78,7 @@ func LoadPal(fname string) (*PAL, error) {
 				R: palbuf[si],
 				G: palbuf[si+1],
 				B: palbuf[si+2],
-				A: 0xff,
+				A: byte(float32(palbuf[si+3]) * (255.0 / 128.0)),
 			}
 
 			if remap {
