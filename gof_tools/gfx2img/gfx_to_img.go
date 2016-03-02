@@ -44,8 +44,8 @@ func LoadPal(fname string) (*PAL, error) {
 
 	pal := &PAL{
 		unk0:     binary.LittleEndian.Uint32(buf[0:4]),
-		unk4:     binary.LittleEndian.Uint32(buf[4:8]),
-		palsize:  binary.LittleEndian.Uint32(buf[8:12]),
+		palsize:  binary.LittleEndian.Uint32(buf[4:8]),
+		unk4:     binary.LittleEndian.Uint32(buf[8:12]),
 		unkC:     binary.LittleEndian.Uint32(buf[12:16]),
 		unk10:    binary.LittleEndian.Uint32(buf[16:20]),
 		palcount: binary.LittleEndian.Uint32(buf[20:24]),
@@ -54,11 +54,24 @@ func LoadPal(fname string) (*PAL, error) {
 	pal.data = make([][]color.RGBA, pal.palcount)
 
 	for palnum := uint32(0); palnum < pal.palcount; palnum++ {
-		palbuf := make([]byte, 0x100*4)
-		fpal.Read(palbuf)
+		remap := false
+		switch pal.palsize {
+		case 0x10:
+			remap = true
+			pal.palsize = 0x100
+		case 0x8:
+			pal.palsize = 0x10
+		default:
+			return pal, errors.New("Unknown pallete size")
+		}
 
-		pallet := make([]color.RGBA, 0x100)
-		for i := 0; i < 0x100; i++ {
+		palbuf := make([]byte, pal.palsize*4)
+		if _, err := fpal.Read(palbuf); err != nil {
+			return pal, err
+		}
+
+		pallet := make([]color.RGBA, pal.palsize)
+		for i := range pallet {
 			si := i * 4
 
 			clr := color.RGBA{
@@ -68,15 +81,19 @@ func LoadPal(fname string) (*PAL, error) {
 				A: 0xff,
 			}
 
-			// apply pallet remapping
-			blockid := i / 8
-			blockpos := i % 8
+			if remap {
+				// apply pallet remapping
+				blockid := i / 8
+				blockpos := i % 8
 
-			remap := []int{0, 2, 1, 3}
+				remap := []int{0, 2, 1, 3}
 
-			newpos := blockpos + (remap[blockid%4]+(blockid/4)*4)*8
+				newpos := blockpos + (remap[blockid%4]+(blockid/4)*4)*8
 
-			pallet[newpos] = clr
+				pallet[newpos] = clr
+			} else {
+				pallet[i] = clr
+			}
 		}
 
 		pal.data[palnum] = pallet
@@ -101,20 +118,36 @@ func ImageFromGfx(fgfxname string, pal []color.RGBA) (image.Image, error) {
 	width := int(binary.LittleEndian.Uint32(buf[4:8]))
 	height := int(binary.LittleEndian.Uint32(buf[8:12]))
 	encoding := int(binary.LittleEndian.Uint32(buf[12:16]))
+	bpi := int(binary.LittleEndian.Uint32(buf[16:20]))
 
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 
-	log.Printf("Image sizes: %vx%v", width, height)
-	data := make([]byte, width*height*4)
+	log.Printf("Width: %v Height: %v Bpi: %v Encoding: %v\n", width, height, bpi, encoding)
+
+	data := make([]byte, (width*height*bpi)/8)
 	_, err = fgfx.Read(data)
 	if err != nil {
 		return img, err
 	}
 
+	switch bpi {
+	case 4:
+		newdata := make([]byte, width*height)
+		for i, v := range data {
+			newdata[i*2] = v & 0xf
+			newdata[i*2+1] = (v >> 4) & 0xf
+		}
+		data = newdata
+		encoding = 2
+	case 8:
+	default:
+		return img, errors.New("Unknown gfx bpi")
+	}
 	switch encoding {
 	case 0:
 		for y := 0; y < height; y++ {
 			for x := 0; x < width; x++ {
+				// apply swizzle
 				block_location := (y&(math.MaxInt32^0xf))*width + (x&(math.MaxInt32^0xf))*2
 				swap_selector := (((y + 2) >> 2) & 0x1) * 4
 				posY := (((y & (math.MaxInt32 ^ 3)) >> 1) + (y & 1)) & 0x7
@@ -158,7 +191,7 @@ func Convert(fgfxname string, fpalname string, out string) error {
 		return err
 	}
 
-	fout, err := os.OpenFile(out+".png", os.O_CREATE|os.O_WRONLY, 0777)
+	fout, err := os.OpenFile(out+".png", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0777)
 	if err != nil {
 		return err
 	}
