@@ -84,9 +84,10 @@ func Unpack(wad string, outdir string, version int) error {
 		}
 
 		tag := binary.LittleEndian.Uint16(item[0:2])
-		//param := binary.LittleEndian.Uint16(item[2:4])
+		param := binary.LittleEndian.Uint16(item[2:4])
 		size := binary.LittleEndian.Uint32(item[4:8])
 		name := utils.BytesToString(item[8:32])
+
 		if version == WAD_VERSION_GOW_2 {
 			if !data {
 				switch tag {
@@ -101,8 +102,10 @@ func Unpack(wad string, outdir string, version int) error {
 				switch tag {
 				case 0x02: // file data group start
 				case 0x03: // file data group end
+				case 0x09: // file data mesh ?
+					fallthrough
 				case 0x01: // file data packet
-					if size != 0 {
+					if size != 0 && name != "" {
 						fname := path.Join(outdir, name)
 						log.Printf("Creating file %s\n", fname)
 						of, err := os.OpenFile(fname, os.O_CREATE|os.O_WRONLY, 0777)
@@ -120,7 +123,6 @@ func Unpack(wad string, outdir string, version int) error {
 			}
 		} else if version == WAD_VERSION_GOW_1 {
 			if !data {
-
 				switch tag {
 				case 0x378: // file header start
 				case 0x28: // file header group start
@@ -131,6 +133,8 @@ func Unpack(wad string, outdir string, version int) error {
 				}
 			} else {
 				switch tag {
+				case 0x18: // entity count
+					size = 0
 				case 0x28: // file data group start
 				case 0x32: // file data group end
 				case 0x1e: // file data packet
