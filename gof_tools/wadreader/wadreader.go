@@ -84,7 +84,7 @@ func Unpack(wad string, outdir string, version int) error {
 		}
 
 		tag := binary.LittleEndian.Uint16(item[0:2])
-		param := binary.LittleEndian.Uint16(item[2:4])
+		//param := binary.LittleEndian.Uint16(item[2:4])
 		size := binary.LittleEndian.Uint32(item[4:8])
 		name := utils.BytesToString(item[8:32])
 
