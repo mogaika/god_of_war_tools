@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/binary"
+	"errors"
 	"flag"
 	"image"
 	"image/color"
@@ -11,7 +12,6 @@ import (
 	"math"
 	"os"
 	"path"
-	"strconv"
 	"strings"
 )
 
@@ -100,6 +100,7 @@ func ImageFromGfx(fgfxname string, pal []color.RGBA) (image.Image, error) {
 
 	width := int(binary.LittleEndian.Uint32(buf[4:8]))
 	height := int(binary.LittleEndian.Uint32(buf[8:12]))
+	encoding := int(binary.LittleEndian.Uint32(buf[12:16]))
 
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 
@@ -110,23 +111,33 @@ func ImageFromGfx(fgfxname string, pal []color.RGBA) (image.Image, error) {
 		return img, err
 	}
 
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
+	switch encoding {
+	case 0:
+		for y := 0; y < height; y++ {
+			for x := 0; x < width; x++ {
+				block_location := (y&(math.MaxInt32^0xf))*width + (x&(math.MaxInt32^0xf))*2
+				swap_selector := (((y + 2) >> 2) & 0x1) * 4
+				posY := (((y & (math.MaxInt32 ^ 3)) >> 1) + (y & 1)) & 0x7
+				column_location := posY*width*2 + ((x+swap_selector)&0x7)*4
 
-			block_location := (y&(math.MaxInt32^0xf))*width + (x&(math.MaxInt32^0xf))*2
-			swap_selector := (((y + 2) >> 2) & 0x1) * 4
-			posY := (((y & (math.MaxInt32 ^ 3)) >> 1) + (y & 1)) & 0x7
-			column_location := posY*width*2 + ((x+swap_selector)&0x7)*4
+				byte_num := ((y >> 1) & 1) + ((x >> 2) & 2) // 0,1,2,3
 
-			byte_num := ((y >> 1) & 1) + ((x >> 2) & 2) // 0,1,2,3
+				datapos := block_location + column_location + byte_num
+				palpos := data[datapos]
 
-			datapos := block_location + column_location + byte_num
-			palpos := data[datapos]
+				col := pal[palpos]
 
-			col := pal[palpos]
-
-			img.SetRGBA(x, y, col)
+				img.SetRGBA(x, y, col)
+			}
 		}
+	case 2:
+		for y := 0; y < height; y++ {
+			for x := 0; x < width; x++ {
+				img.SetRGBA(x, y, pal[data[x+y*width]])
+			}
+		}
+	default:
+		return img, errors.New("Unknown texture encoding")
 	}
 
 	return img, nil
@@ -138,21 +149,23 @@ func Convert(fgfxname string, fpalname string, out string) error {
 		return err
 	}
 
-	for palnum := uint32(0); palnum < pal.palcount; palnum++ {
-		img, err := ImageFromGfx(fgfxname, pal.data[int(palnum)])
-		if err != nil {
-			return err
-		}
+	if pal.palcount == 0 {
+		return errors.New("Pallete contain only 1 array\n")
+	}
 
-		fout, err := os.OpenFile(out+"."+strconv.Itoa(int(palnum))+".png", os.O_CREATE|os.O_WRONLY, 0777)
-		if err != nil {
-			return err
-		}
-		defer fout.Close()
+	img, err := ImageFromGfx(fgfxname, pal.data[0])
+	if err != nil {
+		return err
+	}
 
-		if err := png.Encode(fout, img); err != nil {
-			return err
-		}
+	fout, err := os.OpenFile(out+".png", os.O_CREATE|os.O_WRONLY, 0777)
+	if err != nil {
+		return err
+	}
+	defer fout.Close()
+
+	if err := png.Encode(fout, img); err != nil {
+		return err
 	}
 	return nil
 }
