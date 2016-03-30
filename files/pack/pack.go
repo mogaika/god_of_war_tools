@@ -1,11 +1,8 @@
 package pack
 
-package main
-
 import (
 	"encoding/binary"
 	"errors"
-	"flag"
 	"io"
 	"log"
 	"math"
@@ -13,7 +10,7 @@ import (
 	"path"
 	"strconv"
 
-	"git.sgu.ru/mogaika/god_of_war_tools/utils"
+	"github.com/mogaika/god_of_war_tools/utils"
 )
 
 const SectorSize = 0x800
@@ -34,7 +31,7 @@ const (
 // Return 1 for god of war1 1-dvd
 // Return 2 for god of war2 1-dvd
 func DetectVersion(tok_file string) (int, error) {
-	file, err := os.OpenFile(tok_file, os.O_RDONLY, 0777)
+	file, err := os.Open(tok_file)
 	if err != nil {
 		return TOK_VERSION_UNKNOWN, err
 	}
@@ -65,7 +62,7 @@ func DetectVersion(tok_file string) (int, error) {
 
 // GOF 1
 func ParseTok1(tok_file string) (map[string]*File, error) {
-	file, err := os.OpenFile(tok_file, os.O_RDONLY, 0777)
+	file, err := os.Open(tok_file)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +105,7 @@ func ParseTok1(tok_file string) (map[string]*File, error) {
 // GOF 2
 func ParseTok2(tok_file string) (map[string]*File, error) {
 	const SectorsInFile = (0x3FFFF800 / SectorSize)
-	file, err := os.OpenFile(tok_file, os.O_RDONLY, 0777)
+	file, err := os.Open(tok_file)
 	if err != nil {
 		return nil, err
 	}
@@ -180,10 +177,10 @@ func Unpack(game_folder string, out_folder string, version int) error {
 	var err error
 	tok_fname := path.Join(game_folder, "GODOFWAR.TOC")
 
-	os.Mkdir(out_folder, 0777)
+	os.MkdirAll(out_folder, 0666)
 
 	if version == TOK_VERSION_UNKNOWN {
-		version, err = DetectTokVersion(tok_fname)
+		version, err = DetectVersion(tok_fname)
 		if err != nil {
 			return err
 		}
@@ -233,7 +230,7 @@ func Unpack(game_folder string, out_folder string, version int) error {
 		i++
 		if packpresents[f.Pack] {
 			if f.Pack != curpart {
-				newdisk, err := os.OpenFile(getPackName(game_folder, f.Pack), os.O_RDONLY, 0777)
+				newdisk, err := os.Open(getPackName(game_folder, f.Pack))
 				if err != nil {
 					return err
 				}
@@ -243,7 +240,7 @@ func Unpack(game_folder string, out_folder string, version int) error {
 				disk = newdisk
 			}
 
-			fo, err := os.OpenFile(path.Join(out_folder, name), os.O_CREATE|os.O_WRONLY, 0777)
+			fo, err := os.Create(path.Join(out_folder, name))
 			if err != nil {
 				return err
 			}
@@ -259,7 +256,7 @@ func Unpack(game_folder string, out_folder string, version int) error {
 				curpart++
 
 				disk.Close()
-				disk, err = os.OpenFile(getPackName(game_folder, f.Pack), os.O_RDONLY, 0777)
+				disk, err = os.Open(getPackName(game_folder, f.Pack))
 				if err != nil {
 					return err
 				}

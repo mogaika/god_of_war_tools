@@ -1,4 +1,4 @@
-package main
+package wad
 
 import (
 	"encoding/binary"
