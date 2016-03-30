@@ -15,7 +15,7 @@ type Unpack struct {
 
 func (u *Unpack) DefineFlags(f *flag.FlagSet) {
 	f.StringVar(&u.GameFolder, "in", "", "*Game folder. (Contains GODOFWAR.TOK file)")
-	f.StringVar(&u.OutFolder, "out", "./pack/", " Directory to store result")
+	f.StringVar(&u.OutFolder, "out", "./unpacked", " Directory to store result")
 	f.IntVar(&u.Version, "v", pack.TOK_VERSION_UNKNOWN, " Version of game: 0-Auto; 1-GOW1; 2-GOW2")
 }
 
