@@ -151,7 +151,7 @@ func (u *Image) Run() error {
 			} else {
 				gfxfile := path.Join(path.Dir(u.GfxFile), texture.GfxName)
 
-				if outfname == "TXR_" {
+				if outfname[0:4] == "TXR_" {
 					outfname = outfname[4:len(outfname)]
 				}
 				outfname += ".png"
