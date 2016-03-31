@@ -42,12 +42,9 @@ func main() {
 		sc.DefineFlags(fs)
 		fs.Parse(flag.Args()[1:])
 
-		err := sc.Run()
-		if err != nil {
+		if err := sc.Run(); err != nil {
 			log.Printf("Program exit with error: %v\n", err)
 			os.Exit(2)
-		} else {
-			log.Println("Program OK")
 		}
 	} else {
 		log.Printf("%s is not a valid command", cmdname)
