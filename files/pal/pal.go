@@ -5,7 +5,6 @@ import (
 	"errors"
 	"image/color"
 	"io"
-	"log"
 )
 
 func Decode(fpal io.Reader) ([]color.Palette, error) {

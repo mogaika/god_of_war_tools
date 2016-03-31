@@ -3,27 +3,29 @@ package commands
 import (
 	"errors"
 	"flag"
+	"image"
 	"image/color"
 	"image/png"
 	"log"
 	"os"
-	"path"
 
 	"github.com/mogaika/god_of_war_tools/files/gfx"
 	"github.com/mogaika/god_of_war_tools/files/pal"
-	"github.com/mogaika/god_of_war_tools/utils"
+	"github.com/mogaika/god_of_war_tools/files/txr"
 )
 
 type Image struct {
+	TxrFile string
 	GfxFile string
 	PalFile string
 	OutFile string
 }
 
 func (u *Image) DefineFlags(f *flag.FlagSet) {
-	f.StringVar(&u.GfxFile, "gfx", "", "*input file")
-	f.StringVar(&u.OutFile, "out", "", " result file (default GFX_file->file.png)")
-	f.StringVar(&u.PalFile, "pal", "", " custom pallete file (default GFX_file->PAL_file)")
+	f.StringVar(&u.TxrFile, "txr", "", "*input TXR_ file (in one folder with GFX and PAL files)")
+	f.StringVar(&u.OutFile, "out", "", " result file (default TXR_file->file.png)")
+	f.StringVar(&u.GfxFile, "gfx", "", " custom gfx file")
+	f.StringVar(&u.PalFile, "pal", "", " custom pallete file")
 }
 
 func ReadPaletts(palfile string) ([]color.Palette, error) {
@@ -41,30 +43,51 @@ func ReadPaletts(palfile string) ([]color.Palette, error) {
 	return pals, err
 }
 
-func (u *Image) Run() error {
-	if u.GfxFile == "" {
-		return errors.New("gfx argument required")
+func ReadGfx(gfxfile string, pal color.Palette) (image.Image, error) {
+	fgfx, err := os.Open(gfxfile)
+	if err != nil {
+		return nil, err
+	}
+	defer fgfx.Close()
+
+	img, err := gfx.Decode(fgfx, pal)
+	if err != nil {
+		return nil, err
 	}
 
-	fdir, fname := path.Split(utils.PathPrepare(u.GfxFile))
+	return img, err
+}
 
-	if u.PalFile == "" {
-		if fname[0:4] == "GFX_" {
-			u.PalFile = path.Join(fdir, "PAL_"+fname[4:len(fname)])
-			log.Printf("Generated pallete filename: \"%s\"\n", u.PalFile)
-		} else {
-			return errors.New("Cannot get pallete file from this GFX file (not start with GFX_)")
-		}
+func (u *Image) Run() error {
+	if u.TxrFile == "" {
+		return errors.New("txr argument required")
 	}
 
 	if u.OutFile == "" {
-		if fname[0:4] == "GFX_" {
-			u.OutFile = path.Join(fdir, fname[4:len(fname)])
+		if u.TxrFile[:4] == "TXR_" {
+			u.OutFile = u.TxrFile[4:len(u.TxrFile)]
 		} else {
-			u.OutFile = path.Join(fdir, fname)
+			u.OutFile = u.TxrFile
 		}
 		u.OutFile += ".png"
-		log.Printf("Output filename: \"%s\"\n", u.OutFile)
+	}
+
+	ftxr, err := os.Open(u.TxrFile)
+	if err != nil {
+		return err
+	}
+	defer ftxr.Close()
+
+	texture, err := txr.Decode(ftxr)
+	if err != nil {
+		return err
+	}
+
+	if u.PalFile == "" {
+		u.PalFile = texture.PalName
+	}
+	if u.GfxFile == "" {
+		u.GfxFile = texture.GfxName
 	}
 
 	pals, err := ReadPaletts(u.PalFile)
@@ -78,13 +101,7 @@ func (u *Image) Run() error {
 		log.Printf("Used only first pallet (total %v pallets)", len(pals))
 	}
 
-	fgfx, err := os.Open(u.GfxFile)
-	if err != nil {
-		return err
-	}
-	defer fgfx.Close()
-
-	img, err := gfx.Decode(fgfx, pals[0])
+	img, err := ReadGfx(u.GfxFile, pals[0])
 	if err != nil {
 		return err
 	}
