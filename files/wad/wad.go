@@ -3,68 +3,63 @@ package wad
 import (
 	"encoding/binary"
 	"errors"
-	"flag"
-	"fmt"
 	"io"
 	"log"
 	"math"
 	"os"
 	"path"
 
-	"../utils"
+	"github.com/mogaika/god_of_war_tools/utils"
 )
 
-const (
-	WAD_VERSION_UNKNOWN = iota
-	WAD_VERSION_GOW_1
-	WAD_VERSION_GOW_2
-)
-
-func DetectWadVersion(wad string) (int, error) {
-	file, err := os.OpenFile(wad, os.O_RDONLY, 0777)
-	if err != nil {
-		return WAD_VERSION_UNKNOWN, err
-	}
-	defer file.Close()
-
+func DetectVersion(file io.Reader) (int, error) {
 	buffer := make([]byte, 4)
-	_, err = file.Read(buffer)
+	_, err := file.Read(buffer)
 	if err != nil {
-		return WAD_VERSION_UNKNOWN, err
+		return utils.GAME_VERSION_UNKNOWN, err
 	}
 
 	first_tag := binary.LittleEndian.Uint32(buffer)
 	switch first_tag {
 	case 0x378:
-		return WAD_VERSION_GOW_1, nil
+		return utils.GAME_VERSION_GOW_1_1DVD, nil
 	case 0x15:
-		return WAD_VERSION_GOW_2, nil
+		return utils.GAME_VERSION_GOW_2_1DVD, nil
 	default:
-		return WAD_VERSION_UNKNOWN, errors.New("Cannot detect version")
+		return utils.GAME_VERSION_UNKNOWN, errors.New("Cannot detect version")
 	}
 }
 
-func Unpack(wad string, outdir string, version int) error {
-	var err error
-	if version == WAD_VERSION_UNKNOWN {
-		version, err = DetectWadVersion(wad)
+func dataPacket(f io.Reader, size uint32, name, outdir string) {
+	if size != 0 && name != "" {
+		fname := path.Join(outdir, name)
+		log.Printf("Creating file %s\n", fname)
+		of, err := os.Create(fname)
 		if err != nil {
-			return fmt.Errorf("Cannot detect WAD version: %v\n")
-		} else if version == WAD_VERSION_UNKNOWN {
-			return errors.New("Unknown version of WAD")
+			log.Printf("Cannot open file \"%s\" for writing: %v\n", fname, err)
 		} else {
-			log.Printf("Detected version: %v\n", version)
+			defer of.Close()
+			_, err := io.CopyN(of, f, int64(size))
+			if err != nil {
+				log.Printf("Error when writing data to file \"%s\":%v\n", fname, err)
+			}
 		}
 	}
+}
 
-	f, err := os.OpenFile(wad, os.O_RDONLY, 0777)
-	if err != nil {
-		return err
+func Unpack(f io.ReadSeeker, outdir string, version int) (err error) {
+	if version == utils.GAME_VERSION_UNKNOWN {
+		version, err = DetectVersion(f)
+		if err != nil {
+			return err
+		}
+		if version == utils.GAME_VERSION_UNKNOWN {
+			return errors.New("Unknown version of WAD")
+		}
+		f.Seek(0, os.SEEK_SET)
 	}
-	defer f.Close()
 
-	log.Printf("Using out dir \"%s\"\n", outdir)
-	os.Mkdir(outdir, 0777)
+	os.Mkdir(outdir, 0666)
 	item := make([]byte, 32)
 	data := false
 
@@ -88,7 +83,7 @@ func Unpack(wad string, outdir string, version int) error {
 		size := binary.LittleEndian.Uint32(item[4:8])
 		name := utils.BytesToString(item[8:32])
 
-		if version == WAD_VERSION_GOW_2 {
+		if version == utils.GAME_VERSION_GOW_2_1DVD {
 			if !data {
 				switch tag {
 				case 0x15: // file header start
@@ -105,23 +100,10 @@ func Unpack(wad string, outdir string, version int) error {
 				case 0x09: // file data mesh ?
 					fallthrough
 				case 0x01: // file data packet
-					if size != 0 && name != "" {
-						fname := path.Join(outdir, name)
-						log.Printf("Creating file %s\n", fname)
-						of, err := os.OpenFile(fname, os.O_CREATE|os.O_WRONLY, 0777)
-						if err != nil {
-							log.Printf("Cannot open file \"%s\" for writing: %v\n", fname, err)
-						} else {
-							defer of.Close()
-							_, err := io.CopyN(of, f, int64(size))
-							if err != nil {
-								log.Printf("Error when writing data to file \"%s\":%v\n", fname, err)
-							}
-						}
-					}
+					dataPacket(f, size, name, outdir)
 				}
 			}
-		} else if version == WAD_VERSION_GOW_1 {
+		} else if version == utils.GAME_VERSION_GOW_1_1DVD {
 			if !data {
 				switch tag {
 				case 0x378: // file header start
@@ -138,20 +120,7 @@ func Unpack(wad string, outdir string, version int) error {
 				case 0x28: // file data group start
 				case 0x32: // file data group end
 				case 0x1e: // file data packet
-					if size != 0 {
-						fname := path.Join(outdir, name)
-						log.Printf("Creating file %s\n", fname)
-						of, err := os.OpenFile(fname, os.O_CREATE|os.O_WRONLY, 0777)
-						if err != nil {
-							log.Printf("Cannot open file \"%s\" for writing: %v\n", fname, err)
-						} else {
-							defer of.Close()
-							_, err := io.CopyN(of, f, int64(size))
-							if err != nil {
-								log.Printf("Error when writing data to file \"%s\":%v\n", fname, err)
-							}
-						}
-					}
+					dataPacket(f, size, name, outdir)
 				}
 			}
 		}
@@ -164,27 +133,5 @@ func Unpack(wad string, outdir string, version int) error {
 
 		off := (size + 15) & (15 ^ math.MaxUint32)
 		f.Seek(int64(off)+rpos+32, os.SEEK_SET)
-	}
-}
-
-func main() {
-	flag.Parse()
-	args := flag.Args()
-
-	var wad string
-
-	if len(args) > 0 {
-		wad = args[0]
-	} else {
-		log.Fatalln("Missed argument")
-	}
-
-	out := wad + "_unpacked"
-	if len(args) > 1 {
-		out = args[1]
-	}
-
-	if err := Unpack(wad, out, WAD_VERSION_UNKNOWN); err != nil {
-		log.Fatalln("Error when unpaking wad file: ", err)
 	}
 }
