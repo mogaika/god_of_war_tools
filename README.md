@@ -21,15 +21,11 @@
 # UnPacker
 Tool for unpaking part\*.pak files using info from *GODOFWAR.TOC*
 
-Autodetecting version of GoW
+Autodetecting version of GoW (GoW1 or GoW2)
 
-**GoW1 Tested only on 1-dvd version with part1.pak file**
+Usage: *./god_of_war_tools.exe unpack -in ../GOW2_ARCHIVE/*
 
-**GoW2 Tested only on 1-dvd version with part1-5.pak files**
-
-Usage: *./unpacker path_to_game_folder [path_to_store_files]*
-
-path_to_store_files default is *path_to_game_folder + /pack*
+Help: *./god_of_war_tools.exe unpack -h*
 
 Formats in archive:
 
@@ -41,20 +37,22 @@ Formats in archive:
 | VPK | RAW ADPCM music |
 | TXT | SANITY.TXT used for check archive validity |
 
-After unpaking, summary size of all files being lower then size of archive. This is because, archive dublicate files for faster access on disk.
+After unpaking, summary size of all files being lower then size of archive. This is because, archive dublicate files for faster access on disk. (use -l option for see how much files is duplicated)
 
 # WadReader
-Tool for unpaking *.wad files. Probably not unpack all.
+Tool for extracting files from *.wad archives. *At this moment not extract all information*.
 
 Autodetecting version of GoW (GoW1 or GoW2)
 
-Usage: *./wadreader path_to_wad_file [path_to_store_files]*
+Usage: *./god_of_war_tools.exe extract -wad ../HEHMDA2.WAD*
 
-path_to_store_files default is *path_to_wad_file + _unpacked*
+Help: *./god_of_war_tools.exe extract -h*
 
 # gfx2img
 Convert gfx + pal textures to png image
 
 Both game (GoW1 + GoW2) use same textures format
 
-Usage: *./gfx2img path_to_gfx_file [--pal custom_pallete_file] [--output_file_name]*
+Usage: *./god_of_war_tools.exe image -gfx ../GFX_fileimg*
+
+Help: *./god_of_war_tools.exe image -h*
