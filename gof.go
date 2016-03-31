@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"os"
 
 	"github.com/mogaika/god_of_war_tools/commands"
@@ -15,6 +16,7 @@ type Command interface {
 
 var cmds map[string]Command = map[string]Command{
 	"unpack": &commands.Unpack{},
+	"image":  &commands.Image{},
 }
 
 func main() {
@@ -42,13 +44,13 @@ func main() {
 
 		err := sc.Run()
 		if err != nil {
-			fmt.Printf("Program exit with error: %v\n", err)
+			log.Printf("Program exit with error: %v\n", err)
 			os.Exit(2)
 		} else {
-			fmt.Println("Program OK")
+			log.Println("Program OK")
 		}
 	} else {
-		fmt.Printf("%s is not a valid command", cmdname)
+		log.Printf("%s is not a valid command", cmdname)
 		flag.Usage()
 		os.Exit(1)
 	}

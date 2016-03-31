@@ -22,7 +22,7 @@ func (u *Unpack) DefineFlags(f *flag.FlagSet) {
 	f.StringVar(&u.GameFolder, "in", "", "*Game folder. (Contains GODOFWAR.TOK file)")
 	f.StringVar(&u.OutFolder, "out", "./unpacked", " Directory to store result")
 	f.IntVar(&u.Version, "v", utils.GAME_VERSION_UNKNOWN, " Version of game: 0-Auto; 1-GOW1; 2-GOW2")
-	f.StringVar(&u.TokFile, "tok", "", "Custom tok file name (default is \"GODOFWAR.TOK\" in game folder)")
+	f.StringVar(&u.TokFile, "tok", "", " Custom tok file name (default is \"GODOFWAR.TOK\" in game folder)")
 }
 
 func (u *Unpack) Run() error {

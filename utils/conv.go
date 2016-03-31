@@ -1,6 +1,10 @@
 package utils
 
-import "bytes"
+import (
+	"bytes"
+	"os"
+	"strings"
+)
 
 const SectorSize = 0x800
 
@@ -16,4 +20,8 @@ func BytesToString(bs []byte) string {
 		n = len(bs)
 	}
 	return string(bs[0:n])
+}
+
+func PathPrepare(p string) string {
+	return strings.Replace(p, string(os.PathSeparator), "/", -1)
 }
