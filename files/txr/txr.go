@@ -9,8 +9,9 @@ import (
 )
 
 type Texture struct {
-	GfxName string
-	PalName string
+	GfxName    string
+	PalName    string
+	SubTxrName string
 }
 
 const FILE_SIZE = 0x58
@@ -36,8 +37,9 @@ func Decode(fin io.Reader) (*Texture, error) {
 	}
 
 	tex := &Texture{
-		GfxName: utils.BytesToString(buf[4:28]),
-		PalName: utils.BytesToString(buf[28:52]),
+		GfxName:    utils.BytesToString(buf[4:28]),
+		PalName:    utils.BytesToString(buf[28:52]),
+		SubTxrName: utils.BytesToString(buf[52:76]),
 	}
 	return tex, nil
 }
