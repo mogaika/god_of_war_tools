@@ -15,7 +15,7 @@
     - [ ] Animation
     - [ ] Meta
 - Textures 
-  - [x] Coverting _GFX+_PAL textures to *.png images ([gfx2img](#gfx2img))
+  - [x] Coverting TXR_(GFX+PAL) textures to *.png images (with lods) ([gfx2img](#gfx2img))
   - [ ] Converting *.png to _GFX+_PAL
 
 # UnPacker
@@ -53,6 +53,6 @@ Convert gfx + pal textures to png image
 
 Both game (GoW1 + GoW2) use same textures format
 
-Usage: *./god_of_war_tools.exe image -gfx ../GFX_texture*
+Usage: *./god_of_war_tools.exe image -txr ../TXR_texture*
 
 Help: *./god_of_war_tools.exe image -h*
