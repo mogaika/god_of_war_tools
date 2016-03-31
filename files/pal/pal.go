@@ -5,6 +5,7 @@ import (
 	"errors"
 	"image/color"
 	"io"
+	"log"
 )
 
 func Decode(fpal io.Reader) ([]color.Palette, error) {
@@ -19,18 +20,18 @@ func Decode(fpal io.Reader) ([]color.Palette, error) {
 
 	pal := make([]color.Palette, palcount)
 
-	for palnum := uint32(0); palnum < palcount; palnum++ {
-		remap := false
-		switch palsize {
-		case 0x10:
-			remap = true
-			palsize = 0x100
-		case 0x8:
-			palsize = 0x10
-		default:
-			return nil, errors.New("Unknown pallete size")
-		}
+	remap := false
+	switch palsize {
+	case 0x10:
+		remap = true
+		palsize = 0x100
+	case 0x8:
+		palsize = 0x10
+	default:
+		return nil, errors.New("Unknown pallete size")
+	}
 
+	for palnum := uint32(0); palnum < palcount; palnum++ {
 		palbuf := make([]byte, palsize*4)
 		if _, err := fpal.Read(palbuf); err != nil {
 			return nil, err
