@@ -104,7 +104,7 @@ func (u *Image) Run() error {
 		} else {
 			u.OutFile = u.TxrFile
 		}
-		u.OutFile += ".png"
+		u.OutFile = path.Join(dir, filename+".png")
 	}
 
 	texture, err := LoadTxr(u.TxrFile)
@@ -154,7 +154,7 @@ func (u *Image) Run() error {
 				if outfname[0:4] == "TXR_" {
 					outfname = outfname[4:len(outfname)]
 				}
-				outfname += ".png"
+				outfname = path.Join(dir, outfname+".png")
 
 				_, _, err := ProcessImage(u.PalFile, gfxfile, outfname)
 				if err != nil {

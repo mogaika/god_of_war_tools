@@ -85,7 +85,7 @@ func Unpack(f io.ReadSeeker, outdir string, version int) (err error) {
 		}
 
 		tag := binary.LittleEndian.Uint16(item[0:2])
-		param := binary.LittleEndian.Uint16(item[2:4])
+		//		param := binary.LittleEndian.Uint16(item[2:4])
 		size := binary.LittleEndian.Uint32(item[4:8])
 		name := utils.BytesToString(item[8:32])
 
@@ -148,18 +148,18 @@ func Unpack(f io.ReadSeeker, outdir string, version int) (err error) {
 					tab = tab[:len(tab)-2]
 					print = false
 				case 0x70: // camera data
-					//  dataPacket(f, size, name, outdir)
+					dataPacket(f, size, name, outdir)
 				case 0x71, 0x72: // TWK_
-					//  dataPacket(f, size, name, outdir)
+					dataPacket(f, size, name, outdir)
 				case 0x1e: // file data packet
-					//	dataPacket(f, size, name, outdir)
+					dataPacket(f, size, name, outdir)
 				}
 			}
 		}
 
 		if print {
 			if size == 0 {
-				log.Printf("%s%.8x:%.4x:%.4x:%.8x tag %s\n", tab, rpos, tag, param, size, name)
+				//log.Printf("%s%.8x:%.4x:%.4x:%.8x tag %s\n", tab, rpos, tag, param, size, name)
 			} else {
 				hsh := crc32.NewIEEE()
 				blck := make([]byte, size)
@@ -168,7 +168,7 @@ func Unpack(f io.ReadSeeker, outdir string, version int) (err error) {
 
 				crc := hsh.Sum32()
 
-				log.Printf("%s%.8x:%.4x:%.4x:%.8x data %s crc32 %v\n", tab, rpos, tag, param, size, name, crc)
+				//log.Printf("%s%.8x:%.4x:%.4x:%.8x data %s crc32 %v\n", tab, rpos, tag, param, size, name, crc)
 
 				if v, ok := datarr[name]; ok {
 					log.Println("Duplicate of ", name, v, crc)

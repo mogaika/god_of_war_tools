@@ -2,70 +2,99 @@ package main
 
 import (
 	"encoding/binary"
-	"flag"
 	"fmt"
-	"io"
+	"io/ioutil"
 	"log"
-	"math"
-	"os"
 )
 
 /*
-
-	gofile -> file -> file_0?
-	            ^
-	            |
-	ANM_file ---|
-
+MDL
+{
+	+8		u32		mdls left in file
+	+0x50	u32		first section offset
+	SECTION
+	{
+	+2		u8		1 if present?, 0 if last?
+	+4		u32		position realtive to first section, if 0 - last?
+	}
+}
 */
 
-type MDL1_Head struct {
-	Magic          uint32
-	CommentsOffset uint32
-	Trash          []byte
-	DataOffset     uint32
-
-	Objects []*MDL1_Object
-}
-
-type MDL1_Object struct {
+func main() {
+	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\ATHN05AA.WAD.ex\GenericFightloop1_0`, "genfl1.obj")
+	Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\ARENA10.WAD.ex\Arena_0`, "arena.obj")
+	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_HERO0.WAD.ex\hero_0`, "hero.obj")
+	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_SHELL.WAD.ex\MAI_0`, "mai.obj")
+	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_PERM.WAD.ex\HUD_0`, "mai.obj")
+	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_PERM.WAD.ex\chest_0`, "mai.obj")
 }
 
 func Convert1(mdl string, out string) error {
-	f, err := os.OpenFile(mdl, os.O_RDONLY, 0777)
+	log.Printf("File `%s`", mdl)
+	file, err := ioutil.ReadFile(mdl)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 
-	buf_head := make([]byte, 84)
-	if _, err := f.Read(buf_head); err != nil {
-		return err
+	u32 := func(idx uint32) uint32 {
+		return binary.LittleEndian.Uint32(file[idx : idx+4])
+	}
+	u16 := func(idx uint32) uint16 {
+		return binary.LittleEndian.Uint16(file[idx : idx+2])
+	}
+	u8 := func(idx uint32) uint8 {
+		return file[idx]
 	}
 
-	head := &MDL1_Head{
-		Magic:          binary.LittleEndian.Uint32(buf_head[0:4]),
-		CommentsOffset: binary.LittleEndian.Uint32(buf_head[4:8]),
-		DataOffset:     binary.LittleEndian.Uint32(buf_head[80:84]),
-	}
-
-	if head.Magic != 0x1000f {
+	if u32(0) != 0x1000f {
 		return fmt.Errorf("Unknown mdl type")
 	}
 
-	if _, err := f.Seek(int64(head.DataOffset), os.SEEK_SET); err != nil {
-		return err
-	}
+	mdls := u32(8)
+	//log.Printf("total mdls: %d", mdls)
 
-	for end := false; !end; {
-		buf4 := make([]byte, 4)
-		n, err := f.Read(buf4)
-		if err == io.EOF && n == 0 {
-			break
-		} else if err != nil {
-			return err
+	for i_mdl := uint32(0); i_mdl < mdls; i_mdl++ {
+		mbs := u32(0x50 + i_mdl*4)
+
+		datacount := uint32(u16(mbs + 2))
+		//log.Printf(" current mdl: %d mbs: %x; datas: %d", i_mdl, mbs, datacount)
+
+		for i_data := uint32(0); i_data < datacount; i_data++ {
+			data := mbs + u32(mbs+i_data*4+4)
+			sectors := u32(data + 4)
+
+			//log.Printf("  data %d: %x; sectors: %d", i_data, data, sectors)
+
+			for i_sec := uint32(0); i_sec < sectors; i_sec++ {
+				sector := data + u32(0xc+data+i_sec*4)
+				t := u16(sector)
+
+				//log.Printf("   sector %d: %x; type: %.2x", i_sec, sector, t)
+
+				// most of sectors is 0xE
+				if t == 0xe || t == 0x1d || t == 0x24 {
+					//t0 := u32(sector + 4)
+					//t2 := sector + 0x20
+
+					itemsCount := u32(sector+0xc) * uint32(u8(sector+0x18))
+
+					//	log.Printf("    sector items: %x", itemsCount)
+
+					for i := uint32(0); i < itemsCount; i++ {
+						item := sector + 0x20 + i*0x10
+						rep := u32(item + 4)
+						newrep := rep + sector
+
+						log.Printf("     item %d; pos: %x; replace %x to %x", i, item, rep, newrep)
+						log.Printf("     item val %.8x %.8x %.8x %.8x",
+							u32(newrep), u32(newrep+4), u32(newrep+8), u32(newrep+0xc))
+
+					}
+				}
+			}
 		}
-
+	}
+	/*
 		block := binary.LittleEndian.Uint32(buf4)
 		blockid := (block >> 24) & 0xff
 
@@ -114,20 +143,9 @@ func Convert1(mdl string, out string) error {
 
 		if _, err := f.Seek(int64(size), os.SEEK_CUR); err != nil {
 			return err
-		}
-	}
+		}*/
 
 	//log.Printf("%#v\n", head)
-
-	return nil
-}
-
-func Convert2(mdl string, out string) error {
-	f, err := os.OpenFile(mdl, os.O_RDONLY, 0777)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
 
 	return nil
 }
