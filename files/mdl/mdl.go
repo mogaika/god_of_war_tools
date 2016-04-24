@@ -5,6 +5,10 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"os"
+	"path"
+
+	"github.com/mogaika/god_of_war_tools/utils"
 )
 
 /*
@@ -20,33 +24,48 @@ MDL
 }
 */
 
-type UV struct {
+type stUV struct {
 	u, v int16
 }
 
-type XYZ struct {
-	x, y, z int16
+type stXYZ struct {
+	x, y, z float32
 }
 
-type XYZ8 struct {
-	x, y, z int8
+type stFACE struct {
+	i, j, k int
 }
 
 func main() {
-	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\ATHN05AA.WAD.ex\GenericFightloop1_0`, "genfl1.obj")
-	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\ARENA10.WAD.ex\Arena_0`, "arena.obj")
-	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_HERO0.WAD.ex\hero_0`, "hero.obj")
-	Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_SHELL.WAD.ex\MAI_0`, "mai.obj")
-	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_PERM.WAD.ex\HUD_0`, "mai.obj")
-	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_PERM.WAD.ex\chest_0`, "mai.obj")
+	Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\ATHN04D.WAD.ex\polySurface16564_0`)
+	Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\SEWR01.WAD.ex\Sewer1b_0`)
+	Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_BRSRK2.WAD.ex\berserkBlade_0`)
+	Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\ARENA10.WAD.ex\Arena_0`)
+	Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_HERO0.WAD.ex\hero_0`)
+	Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\ATHN02A.WAD.ex\scaffoldTopFac_0`)
+	Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\ATHN01A.WAD.ex\nightSky_0`)
+	Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_SHELL.WAD.ex\MAI_0`)
+	Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_PERM.WAD.ex\chest_0`)
+	Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\ATHN01B.WAD.ex\insideShip06_0`)
+	Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\ATHN01B.WAD.ex\insideShip07_0`)
+	Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_SHELL.WAD.ex\Visuals_0`)
+	Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_SHELL.WAD.ex\firePlane_0`)
+
+	// problems with shit:
+	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_LGHTN0.WAD.ex\lightningRadius_0`)
+	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_PERM.WAD.ex\HUD_0`)
+	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_MEDHD2.WAD.ex\medheadNuke_0`)
 }
 
-func Convert1(mdl string, out string) error {
+func Convert1(mdl string) error {
+	mdl = utils.PathPrepare(mdl)
 	log.Printf("File `%s`", mdl)
 	file, err := ioutil.ReadFile(mdl)
 	if err != nil {
 		return err
 	}
+
+	_, mdl_filename := path.Split(mdl)
 
 	u32 := func(idx uint32) uint32 {
 		return binary.LittleEndian.Uint32(file[idx : idx+4])
@@ -65,6 +84,16 @@ func Convert1(mdl string, out string) error {
 	mdls := u32(8)
 	log.Printf("total mdls: %d", mdls)
 
+	commentStart := u32(4)
+
+	ofilename := fmt.Sprintf("res/out_%s.obj", mdl_filename)
+	ofile, err := os.Create(ofilename)
+	if err != nil {
+		log.Fatalf("Cannot create file %s: %v", ofilename, err)
+	}
+	defer ofile.Close()
+	vertnum := 1
+
 	for i_mdl := uint32(0); i_mdl < mdls; i_mdl++ {
 		mbs := u32(0x50 + i_mdl*4)
 
@@ -73,7 +102,7 @@ func Convert1(mdl string, out string) error {
 
 		// data = group ?
 		// sector = object ?
-		// item = mesh ?
+		// item = part of stream ?
 
 		for i_data := uint32(0); i_data < datacount; i_data++ {
 			data := mbs + u32(mbs+i_data*4+4)
@@ -85,7 +114,12 @@ func Convert1(mdl string, out string) error {
 				sector := data + u32(0xc+data+i_sec*4)
 				t := u16(sector)
 
+				fmt.Fprintf(ofile, "o sec_%.6x\n", sector)
+				swp := false
 				log.Printf("   sector %d: %x; type: %.2x", i_sec, sector, t)
+
+				o_tvs := 0
+				o_xyzs := 0
 
 				// most of sectors is 0xE
 				if t == 0xe || t == 0x1d || t == 0x24 {
@@ -94,38 +128,63 @@ func Convert1(mdl string, out string) error {
 
 					itemsCount := u32(sector+0xc) * uint32(u8(sector+0x18))
 
-					log.Printf("    sector items: %x", itemsCount)
+					log.Printf("   sector items: %x", itemsCount)
 
 					for i := uint32(0); i < itemsCount; i++ {
 						item := sector + 0x20 + i*0x10
 						rep := u32(item + 4)
 						newrep := rep + sector
 
-						log.Printf("     item %d; pos: %x; replace %x to %x", i, item, rep, newrep)
-
 						block := newrep
-						//	curst := uint32(0)
+
+						log.Printf("    item %d; pos: %x; replace %x to %x %s", i, item, rep, newrep, mdl_filename)
+
+						sblock := block
 
 					blockcycle:
 						for {
-							dattype := u8(block + 3)
-							bcount := uint32(u8(block + 2))
-
-							if dattype == 0 {
+							if block >= commentStart || block+3 >= uint32(len(file)) {
+								log.Printf("       [      -%.6x] limit", block)
 								break
 							}
 
-							sblock := block
+							dattype := u8(block + 3)
+							if dattype == 0 {
+								log.Printf("       [      -%.6x] zerotype", block)
+								break
+							}
+
+							bcount := uint32(u8(block + 2))
+
+							sblock = block
 
 							switch dattype {
 							case 1:
 								block += 4
 								//curst = sblock
 								log.Printf("       [%.6x-%.6x] data %.2x      %.8x", sblock, block, dattype, u32(sblock))
+							case 5:
+								block += 4
+								log.Printf("       [%.6x-%.6x] data %.2x      %.8x", sblock, block, dattype, u32(sblock))
+							case 0x30:
+								block += 4 + 16
+								log.Printf("       [%.6x-%.6x] data %.2x      %.8x", sblock, block, dattype, u32(sblock))
+							case 0x64:
+								block += 4 + bcount*8
+								log.Printf("       [%.6x-%.6x] data b;en %.2x %.8x", sblock, block, bcount, u32(sblock))
 							case 0x65:
 								// 2ByteSignedIntegerUVcoords(U,V)
 								block += 4 + bcount*4
 								log.Printf("       [%.6x-%.6x] data uv   %.2x %.8x", sblock, block, bcount, u32(sblock))
+
+								p := sblock + 4
+								for i := uint32(0); i < bcount; i++ {
+									//_ := float32(int16(u16(p))) / 256.0
+									//_ := float32(int16(u16(p+2))) / 256.0
+									p += 4
+									o_tvs++
+								}
+
 							case 0x6a:
 								// 1ByteSignedInteger(X,Y,Z)
 								block += 4 + ((bcount*3+3)/4)*4
@@ -133,43 +192,82 @@ func Convert1(mdl string, out string) error {
 							case 0x6c:
 								// unknown shit?
 								shid := u8(sblock)
-
 								block += 4 + bcount*0x10
 
-								algn := "no"
+								algn := ""
 
-								// FUCK THIS
-
-								if shid != 0 || (sblock)&0xF != 0 || bcount != 1 {
-									if shid != 0 {
-										algn = "shi"
-										block += 0x10
-									} else if bcount != 1 {
-										algn = "bcn"
-										block += 0x10
-									} else {
-										algn = "off"
-										block += 0x10
+								switch shid {
+								case 0x49:
+									fallthrough
+								case 0x55:
+									fallthrough
+								case 0x9f:
+									fallthrough
+								case 0xab:
+									fallthrough
+								case 0xf4:
+									if sblock&0xf < 8 {
+										block = ((block + 0x7) / 0x8) * 0x8
 									}
-									block = (block / 0x10) * 0x10
+
+								case 0:
+									if bcount > 1 {
+										block = ((block + 0xf) / 0x10) * 0x10
+										algn = "bcoun"
+									}
+								default:
+									log.Fatalf("Error: new type of shit: %.2x", shid)
 								}
 
-								log.Printf("       [%.6x-%.6x] data shit %.2x %.8X shid: %x off %x %s",
-									sblock, block, bcount, u32(sblock), shid, (sblock+4)&0xF, algn)
+								log.Printf("       [%.6x-%.6x] data shit %.2x %.8X shid: %.2x off al:%s",
+									sblock, block, bcount, u32(sblock), shid, algn)
 							case 0x6d:
 								// 2ByteSignedVertexes(X,Y,Z)+1ByteUnknown+1ByteCONN
-								block += 4 + bcount*0xc + 4
-								log.Printf("       [%.6x-%.6x] data xyz  %.2x %.8x", sblock, block, bcount, u32(sblock))
-							case 0x3f:
 								block += 4 + bcount*8
-								log.Printf("       [%.6x-%.6x] data wtf  %.2x %.8x", sblock, block, bcount, u32(sblock))
+								log.Printf("       [%.6x-%.6x] data xyz  %.2x %.8x", sblock, block, bcount, u32(sblock))
+
+								// GS use 12:4 fixed point format
+								// 1 << 12 = 4096
+								const delimetr = 4096.0
+								for i := uint32(0); i < bcount; i++ {
+									p := sblock + 4 + i*8
+									x := float32(int16(u16(p))) / delimetr
+									y := float32(int16(u16(p+2))) / delimetr
+									z := float32(int16(u16(p+4))) / delimetr
+
+									push := u8(p+7) >> 4
+									fmt.Fprintf(ofile, "v %f %f %f\n#%x\n", x, y, z, push)
+
+									if push != 8 {
+										i2 := vertnum - 1
+										i3 := vertnum - 2
+										if swp {
+											i2, i3 = i3, i2
+										}
+
+										fmt.Fprintf(ofile, "f %d %d %d\n", vertnum, i2, i3)
+									}
+									swp = !swp
+									o_xyzs++
+									vertnum++
+								}
+
+								fmt.Fprintf(ofile, "\n\n\n")
+							case 0x6e:
+								block += 4 + bcount*4
+								log.Printf("       [%.6x-%.6x] data rgba %.2x %.8x", sblock, block, bcount, u32(sblock))
+							/*case 0x3f:
+							block += 4 + bcount*8
+							log.Printf("       [%.6x-%.6x] data kek  %.2x %.8x", sblock, block, bcount, u32(sblock))*/
 							default:
-								log.Printf("       ~~~~ UNKNOWN DATTYPE: %.6x %x[%.8x]", block, dattype, u32(sblock))
+								log.Printf("  !!!!  ~~~~ UNKNOWN DATTYPE: %.6x %x[%.8x] !!!!!!!!!!!!!!!!! %s", block, dattype, u32(sblock), mdl_filename)
 								break blockcycle
 							}
 						}
 					}
 				}
+
+				log.Printf("Object vts: %d xyzs: %d\n", o_tvs, o_xyzs)
 			}
 		}
 	}
