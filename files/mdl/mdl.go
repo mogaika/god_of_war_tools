@@ -52,7 +52,7 @@ func main() {
 
 	// problems with shit:
 	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_LGHTN0.WAD.ex\lightningRadius_0`)
-	Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_PERM.WAD.ex\HUD_0`)
+	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_PERM.WAD.ex\HUD_0`)
 	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_MEDHD2.WAD.ex\medheadNuke_0`)
 }
 
@@ -76,7 +76,7 @@ func VifRead1(vif []byte, debug_off uint32) (error, *stBlock) {
 
 	for i := 0; !exit; i++ {
 		pos = ((pos + 3) / 4) * 4
-		if pos >= uint32(len(vif)) {
+		if pos > uint32(len(vif)-4) {
 			break
 		}
 
@@ -177,6 +177,27 @@ func VifRead1(vif []byte, debug_off uint32) (error, *stBlock) {
 	return nil, block
 }
 
+type ModelPacket struct {
+	fileStruct uint32
+	Blocks     []*stBlock
+}
+
+type ModelObject struct {
+	fileStruct uint32
+	Type       uint16
+	Packets    []ModelPacket
+}
+
+type ModelGroup struct {
+	fileStruct uint32
+	Objects    []ModelObject
+}
+
+type ModelPart struct {
+	fileStruct uint32
+	Groups     []ModelGroup
+}
+
 func Convert1(mdl string) error {
 	mdl = utils.PathPrepare(mdl)
 	log.Printf("File `%s`", mdl)
@@ -185,7 +206,7 @@ func Convert1(mdl string) error {
 		return err
 	}
 
-	_, mdl_filename := path.Split(mdl)
+	_, mdlFilename := path.Split(mdl)
 
 	u32 := func(idx uint32) uint32 {
 		return binary.LittleEndian.Uint32(file[idx : idx+4])
@@ -201,89 +222,231 @@ func Convert1(mdl string) error {
 		return fmt.Errorf("Unknown mdl type")
 	}
 
-	mdls := u32(8)
-	log.Printf("total mdls: %d", mdls)
+	mdlCommentStart := u32(4)
 
-	//	commentStart := u32(4)
+	partsCount := u32(8)
 
-	ofilename := fmt.Sprintf("res/out_%s.obj", mdl_filename)
-	ofile, err := os.Create(ofilename)
+	parts := make([]ModelPart, partsCount)
+
+	log.Printf("parts: %d", partsCount)
+
+	// build tree for blocks boundary finding
+	for iPart := uint32(0); iPart < partsCount; iPart++ {
+		pPart := u32(0x50 + iPart*4)
+		groupsCount := uint32(u16(pPart + 2))
+
+		log.Printf(" part: %d pos: %.6x; groups: %d", iPart, pPart, groupsCount)
+
+		parts[iPart].fileStruct = pPart
+		groups := make([]ModelGroup, groupsCount)
+
+		for iGroup := uint32(0); iGroup < groupsCount; iGroup++ {
+			pGroup := pPart + u32(pPart+iGroup*4+4)
+			objectsCount := u32(pGroup + 4)
+
+			log.Printf("  group: %d pos: %.6x; objects: %d", iGroup, pGroup, objectsCount)
+
+			groups[iGroup].fileStruct = pGroup
+			objects := make([]ModelObject, objectsCount)
+			for iObject := uint32(0); iObject < objectsCount; iObject++ {
+				pObject := pGroup + u32(0xc+pGroup+iObject*4)
+				tObject := u16(pObject)
+				packetsCount := u32(pObject+0xc) * uint32(u8(pObject+0x18))
+
+				log.Printf("   object: %d pos: %.6x; type: %.2x", iObject, pObject, tObject)
+
+				objects[iObject].fileStruct = pObject
+				objects[iObject].Type = tObject
+				packets := make([]ModelPacket, packetsCount)
+
+				/*
+					0x1d - surface mesh (bridge, skybox)
+					0x0e - model mesh (ship, hero, enemy)
+				*/
+
+				if tObject == 0xe || tObject == 0x1d || tObject == 0x24 {
+					for iPacket := uint32(0); iPacket < packetsCount; iPacket++ {
+						pPacketInfo := pObject + 0x20 + iPacket*0x10
+						pPacket := pObject + u32(pPacketInfo+4)
+
+						log.Printf("    packet: %d pos: %.6x;", iPacket, pPacket)
+
+						packets[iPacket].fileStruct = pPacket
+					}
+				}
+				objects[iObject].Packets = packets
+			}
+			groups[iGroup].Objects = objects
+		}
+		parts[iPart].Groups = groups
+	}
+
+	ofileName := fmt.Sprintf("res/out_%s.obj", mdlFilename)
+	ofile, err := os.Create(ofileName)
 	if err != nil {
-		log.Fatalf("Cannot create file %s: %v", ofilename, err)
+		log.Fatalf("Cannot create file %s: %v", ofileName, err)
 	}
 	defer ofile.Close()
+	vertIndex := 1
 
-	vertnum := 1
+	pointerEnd := mdlCommentStart
+	for iPart := len(parts) - 1; iPart >= 0; iPart-- {
+		part := &parts[iPart]
+		groups := part.Groups
 
-	for i_mdl := uint32(0); i_mdl < mdls; i_mdl++ {
-		mbs := u32(0x50 + i_mdl*4)
+		for iGroup := len(groups) - 1; iGroup >= 0; iGroup-- {
+			group := &groups[iGroup]
+			objects := group.Objects
 
-		datacount := uint32(u16(mbs + 2))
-		log.Printf(" current mdl: %d mbs: %x; datas: %d", i_mdl, mbs, datacount)
+			fmt.Fprintf(ofile, "g group_%.6x\n", group.fileStruct)
 
-		fmt.Fprintf(ofile, "g group_%.6x\n", mbs)
-		// data = group ?
-		// sector = object ?
-		// item = part of stream ?
+			for iObject := len(objects) - 1; iObject >= 0; iObject-- {
+				object := &objects[iObject]
+				packets := object.Packets
 
-		for i_data := uint32(0); i_data < datacount; i_data++ {
-			data := mbs + u32(mbs+i_data*4+4)
-			sectors := u32(data + 4)
+				fmt.Fprintf(ofile, "o obj_%.6x\n", object.fileStruct)
 
-			log.Printf("  data %d: %x; sectors: %d", i_data, data, sectors)
+				for iPacket := len(packets) - 1; iPacket >= 0; iPacket-- {
+					packet := &packets[iPacket]
 
-			for i_sec := uint32(0); i_sec < sectors; i_sec++ {
-				sector := data + u32(0xc+data+i_sec*4)
-				t := u16(sector)
+					err, vifpack := VifRead1(file[packet.fileStruct:pointerEnd], packet.fileStruct)
+					if err != nil {
+						log.Printf("ERROR when vif reading: %v", err)
+					} else {
+						packet.Blocks = append(packet.Blocks, vifpack)
 
-				fmt.Fprintf(ofile, "o sec_%.6x\n", sector)
-				log.Printf("   sector %d: %x; type: %.2x", i_sec, sector, t)
-
-				// most of sectors is 0xE
-				if t == 0xe || t == 0x1d || t == 0x24 {
-					//t0 := u32(sector + 4)
-					//t2 := sector + 0x20
-
-					packetsCount := u32(sector+0xc) * uint32(u8(sector+0x18))
-
-					for i := uint32(0); i < packetsCount; i++ {
-						packet := sector + 0x20 + i*0x10
-						rep := u32(packet + 4)
-						newrep := rep + sector
-
-						block := newrep
 						swp := false
-						log.Printf("    packet %d; pos: %x block:%x %s", i, packet, newrep, mdl_filename)
+						if vifpack.trias != nil && len(vifpack.trias) > 0 {
+							for i := range vifpack.trias {
+								t := &vifpack.trias[i]
 
-						err, vifpack := VifRead1(file[block:], block)
-						if err != nil {
-							return err
-						} else {
-							if vifpack.trias != nil && len(vifpack.trias) > 0 {
-								for i := range vifpack.trias {
-									t := &vifpack.trias[i]
+								fmt.Fprintf(ofile, "v %f %f %f\n\n", t.x, t.y, t.z)
 
-									fmt.Fprintf(ofile, "v %f %f %f\n\n", t.x, t.y, t.z)
-
-									if !t.skip {
-										i2 := vertnum - 1
-										i3 := vertnum - 2
-										if swp {
-											i2, i3 = i3, i2
-										}
-
-										fmt.Fprintf(ofile, "f %d %d %d\n", vertnum, i2, i3)
+								if !t.skip {
+									i2 := vertIndex - 1
+									i3 := vertIndex - 2
+									if swp {
+										i2, i3 = i3, i2
 									}
-									swp = !swp
-									vertnum++
+
+									fmt.Fprintf(ofile, "f %d %d %d\n", vertIndex, i2, i3)
 								}
-								fmt.Fprintf(ofile, "\n\n")
+								swp = !swp
+								vertIndex++
+							}
+							fmt.Fprintf(ofile, "\n\n")
+						}
+					}
+					pointerEnd = packet.fileStruct
+				}
+				pointerEnd = object.fileStruct
+			}
+			pointerEnd = group.fileStruct
+		}
+		pointerEnd = part.fileStruct
+	}
+
+	/*
+		ofilename := fmt.Sprintf("res/out_%s.obj", mdl_filename)
+		ofile, err := os.Create(ofilename)
+		if err != nil {
+			log.Fatalf("Cannot create file %s: %v", ofilename, err)
+		}
+		defer ofile.Close()
+
+		vertnum := 1
+
+		for i_mdl := uint32(0); i_mdl < mdls; i_mdl++ {
+			mbs := u32(0x50 + i_mdl*4)
+
+			datacount := uint32(u16(mbs + 2))
+			log.Printf(" current mdl: %d mbs: %x; datas: %d", i_mdl, mbs, datacount)
+
+			fmt.Fprintf(ofile, "g group_%.6x\n", mbs)
+			// data = group ?
+			// sector = object ?
+			// item = part of stream ?
+
+			for i_data := uint32(0); i_data < datacount; i_data++ {
+				data := mbs + u32(mbs+i_data*4+4)
+				sectorCount := u32(data + 4)
+
+				log.Printf("  data %d: %x; sectors: %d", i_data, data, sectorCount)
+
+				var sectors []uint32
+
+				for i_sec := uint32(0); i_sec < sectorCount; i_sec++ {
+					sectors = append(sectors, data+u32(0xc+data+i_sec*4))
+				}
+
+				for i_sec := uint32(0); i_sec < sectorCount; i_sec++ {
+					sectorstart := sectors[i_sec]
+
+					sectorend := commentStart
+					if (i_sec + 1) < sectorCount {
+						sectorend = sectors[i_sec+1]
+					}
+
+					t := u16(sectorstart)
+
+					fmt.Fprintf(ofile, "o sec_%.6x\n", sectorstart)
+					log.Printf("   sector %d: %x; type: %.2x", i_sec, sectorstart, t)
+
+					// most of sectors is 0xE
+					if t == 0xe || t == 0x1d || t == 0x24 {
+						//t0 := u32(sector + 4)
+						//t2 := sector + 0x20
+
+						packetsCount := u32(sectorstart+0xc) * uint32(u8(sectorstart+0x18))
+
+						var packs []uint32
+
+						for i := uint32(0); i < packetsCount; i++ {
+							packet := sectorstart + 0x20 + i*0x10
+							relative_pos := u32(packet + 4)
+							packs = append(packs, relative_pos+sectorstart)
+						}
+
+						for i := uint32(0); i < packetsCount; i++ {
+							packstart := packs[i]
+
+							packend := sectorend
+							if (i + 1) < packetsCount {
+								packend = packs[i+1]
+							}
+
+							log.Printf("    packet %d; pos: %.6x-%.6x file: %s", i, packstart, packend, mdl_filename)
+
+							err, vifpack := VifRead1(file[packstart:packend], packstart)
+							if err != nil {
+								return err
+							} else {
+								swp := false
+								if vifpack.trias != nil && len(vifpack.trias) > 0 {
+									for i := range vifpack.trias {
+										t := &vifpack.trias[i]
+
+										fmt.Fprintf(ofile, "v %f %f %f\n\n", t.x, t.y, t.z)
+
+										if !t.skip {
+											i2 := vertnum - 1
+											i3 := vertnum - 2
+											if swp {
+												i2, i3 = i3, i2
+											}
+
+											fmt.Fprintf(ofile, "f %d %d %d\n", vertnum, i2, i3)
+										}
+										swp = !swp
+										vertnum++
+									}
+									fmt.Fprintf(ofile, "\n\n")
+								}
 							}
 						}
 					}
 				}
 			}
-		}
-	}
+		}*/
 	return nil
 }
