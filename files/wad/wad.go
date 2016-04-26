@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"os"
 	"path"
@@ -62,7 +63,7 @@ func (nd *WadNode) StringPrefixed(prefix string) string {
 	switch nd.Type {
 	case NODE_TYPE_DATA:
 		res := fmt.Sprintf("%sdata size: 0x%.6x format: 0x%.8x start: 0x%.8x '%s'",
-			prefix, nd.Size, nd.DataStart, nd.Format, nd.Name)
+			prefix, nd.Size, nd.Format, nd.DataStart, nd.Name)
 
 		if len(nd.SubNodes) > 0 {
 			postfix := prefix + "  "
@@ -345,9 +346,7 @@ func NewWad(f io.ReaderAt, version int) (wad *Wad, err error) {
 					}
 				}
 
-				if node.LinkTo == nil {
-					return nil, fmt.Errorf(" ### Unresolved link to '%s'", node.Name)
-				}
+				log.Printf(" ### Unresolved link to '%s'", node.Name)
 			} else {
 				node = wad.newNode(currentNode, name, NODE_TYPE_DATA)
 

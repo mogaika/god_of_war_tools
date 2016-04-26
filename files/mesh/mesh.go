@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"math"
 	"os"
 	"path"
 
@@ -53,9 +54,9 @@ func VifRead1(vif []byte, debug_off uint32) (error, []*stBlock) {
 
 	currentblock := new(stBlock)
 
-	//u32 := func(idx uint32) uint32 {
-	//	return binary.LittleEndian.Uint32(vif[idx : idx+4])
-	//}
+	u32 := func(idx uint32) uint32 {
+		return binary.LittleEndian.Uint32(vif[idx : idx+4])
+	}
 	u16 := func(idx uint32) uint16 {
 		return binary.LittleEndian.Uint16(vif[idx : idx+2])
 	}
@@ -65,7 +66,7 @@ func VifRead1(vif []byte, debug_off uint32) (error, []*stBlock) {
 
 	pos := uint32(0)
 
-	// spaces := "     "
+	spaces := "     "
 
 	exit := false
 
@@ -93,9 +94,9 @@ func VifRead1(vif []byte, debug_off uint32) (error, []*stBlock) {
 			blocksize := uint32(components) * ((width * uint32(pk_num)) / 8)
 
 			signed := ((pk_dat2 & (1 << 6)) >> 6) ^ 1
-			// address := (pk_dat2 & (1 << 7)) >> 7
+			address := (pk_dat2 & (1 << 7)) >> 7
 
-			// target := uint32(pk_dat1) | (uint32(pk_dat2&3) << 8)
+			target := uint32(pk_dat1) | (uint32(pk_dat2&3) << 8)
 
 			/*
 				struct VIFCodeUnpack
@@ -110,7 +111,7 @@ func VifRead1(vif []byte, debug_off uint32) (error, []*stBlock) {
 				};
 			*/
 
-			// grabbedType := "none"
+			grabbedType := "none"
 
 			if cl == 3 || cl == 4 {
 				if pk_cmd == 0x6d && components == 4 && width == 16 && signed != 0 {
@@ -128,12 +129,12 @@ func VifRead1(vif []byte, debug_off uint32) (error, []*stBlock) {
 
 						currentblock.trias = append(currentblock.trias, stXYZ{x: x, y: y, z: z, skip: skip})
 
-						//log.Printf(" -- %.4x %+2.4f %+2.4f %+2.4f", u16(bp+6), x, y, z)
+						// log.Printf(" -- %.4x %+2.4f %+2.4f %+2.4f", u16(bp+6), x, y, z)
 
 						bp += 8
 					}
 
-					// grabbedType = " xyz"
+					grabbedType = " xyz"
 				} else if pk_cmd == 0x6e && components == 4 && width == 8 && signed == 0 {
 					if currentblock.blend == nil {
 						currentblock.blend = make([]stRGBA, 0)
@@ -146,7 +147,7 @@ func VifRead1(vif []byte, debug_off uint32) (error, []*stBlock) {
 						bp += 4
 					}
 
-					// grabbedType = "rgba"
+					grabbedType = "rgba"
 				} else if pk_cmd == 0x65 && components == 2 && width == 16 && signed == 1 {
 					if currentblock.uvs == nil {
 						currentblock.uvs = make([]stUV, 0)
@@ -160,26 +161,21 @@ func VifRead1(vif []byte, debug_off uint32) (error, []*stBlock) {
 						bp += 4
 					}
 
-					// grabbedType = " uv "
+					grabbedType = " uv "
 				}
 			} else {
-
-				/*
-					debug.Printf("%.6x vif unpack: [%s] %.2x elements: %.2x components: %d type: %.2d target: %.3x sign: %d addr: %d size: %.4x",
-						debug_off+pos, grabbedType, pk_cmd, pk_num, components, width, target, signed, address, blocksize)
-				*/
-
-				/*
-					if pk_num == 1 && components == 4 && width == 32 {
-						debug.Printf("    %.8x %.8x %.8x %.8x", u32(pos), u32(pos+4), u32(pos+8), u32(pos+12))
-						debug.Printf("    %f %f %f %f",
+				if components == 4 && width == 32 {
+					for i := 0; i < int(pk_num); i++ {
+						log.Printf("    [%.2d]%.8x %.8x %.8x %.8x", i, u32(pos), u32(pos+4), u32(pos+8), u32(pos+12))
+						log.Printf("          %f %f %f %f",
 							math.Float32frombits(u32(pos)), math.Float32frombits(u32(pos+4)),
 							math.Float32frombits(u32(pos+8)), math.Float32frombits(u32(pos+12)))
 					}
-				*/
+				}
+
 			}
-			//log.Printf("%s %.6x vif unpack: [%s] %.2x elements: %.2x components: %d type: %.2d target: %.3x sign: %d addr: %d size: %.4x",
-			//	spaces, debug_off+pos, grabbedType, pk_cmd, pk_num, components, width, target, signed, address, blocksize)
+			log.Printf("%s %.6x vif unpack: [%s] %.2x elements: %.2x components: %d type: %.2d target: %.3x sign: %d addr: %d size: %.4x",
+				spaces, debug_off+pos, grabbedType, pk_cmd, pk_num, components, width, target, signed, address, blocksize)
 
 			pos += blocksize
 		} else {
@@ -187,7 +183,7 @@ func VifRead1(vif []byte, debug_off uint32) (error, []*stBlock) {
 			case 0:
 				// log.Printf("%s %.6x nop", spaces, debug_off+pos)
 			case 01:
-				// log.Printf("%s %.6x Stcycl wl=%.2x cl=%.2x", spaces, debug_off+pos, pk_dat2, pk_dat1)
+				log.Printf("%s %.6x Stcycl wl=%.2x cl=%.2x", spaces, debug_off+pos, pk_dat2, pk_dat1)
 				cl = int(pk_dat1)
 				if cl == 1 {
 					if currentblock.trias != nil && len(currentblock.trias) > 0 {
@@ -214,11 +210,11 @@ func VifRead1(vif []byte, debug_off uint32) (error, []*stBlock) {
 				// }
 				// log.Printf("%s %.6x Stmod  mode=%s (%d)", spaces, debug_off+pos, cmode, pk_dat1)
 			case 0x14:
-				//log.Printf("%s %.6x Mscall proc command", spaces, debug_off+pos)
+				log.Printf("%s %.6x Mscall proc command", spaces, debug_off+pos)
 			case 0x30:
-				//log.Printf("%s %.6x Strow  proc command", spaces, debug_off+pos)
+				log.Printf("%s %.6x Strow  proc command", spaces, debug_off+pos)
 			default:
-				//log.Printf("%s %.6x VIF command: %.2x:%.2x data: %.2x:%.2x", spaces, debug_off+pos, pk_cmd, pk_num, pk_dat1, pk_dat2)
+				log.Printf("%s %.6x VIF command: %.2x:%.2x data: %.2x:%.2x", spaces, debug_off+pos, pk_cmd, pk_num, pk_dat1, pk_dat2)
 				exit = true
 			}
 		}
@@ -310,8 +306,8 @@ func NewFromData(rdat io.Reader) (*Mesh, error) {
 				packets := make([]MeshPacket, packetsCount)
 
 				/*
-					0x1d - surface mesh (bridge, skybox)
-					0x0e - model mesh (ship, hero, enemy)
+					0x1d - static mesh (bridge, skybox)
+					0x0e - dynamic? mesh (ship, hero, enemy)
 				*/
 
 				if tObject == 0xe || tObject == 0x1d || tObject == 0x24 {
@@ -383,21 +379,18 @@ func (ms *Mesh) Extract(textures []string, outfname string) ([]string, error) {
 		part := &parts[iPart]
 		groups := part.Groups
 
-		//log.Printf(" part: %d pos: %.6x; groups: %d", iPart, part.fileStruct, len(groups))
+		log.Printf(" part: %d pos: %.6x; groups: %d", iPart, part.fileStruct, len(groups))
 		fmt.Fprintf(ofile, "g group_%.6x\n", part.fileStruct)
 
 		for iGroup := len(groups) - 1; iGroup >= 0; iGroup-- {
 			group := &groups[iGroup]
 			objects := group.Objects
 
-			//log.Printf("  group: %d pos: %.6x; objects: %d", iGroup, group.fileStruct, len(objects))
-
 			for iObject := len(objects) - 1; iObject >= 0; iObject-- {
 				object := &objects[iObject]
 				packets := object.Packets
 
-				//log.Printf("   object: %d pos: %.6x; type: %.2x; textureid: %.2x", iObject, object.fileStruct, object.Type, object.TextureId)
-				fmt.Fprintf(ofile, "o obj_%.6x\n", object.fileStruct)
+				log.Printf("   object: %d pos: %.6x; type: %.2x; textureid: %.2x", iObject, object.fileStruct, object.Type, object.TextureId)
 				swp := true
 
 				bufv := ""
@@ -407,7 +400,7 @@ func (ms *Mesh) Extract(textures []string, outfname string) ([]string, error) {
 				for iPacket := len(packets) - 1; iPacket >= 0; iPacket-- {
 					packet := &packets[iPacket]
 
-					//log.Printf("    packet: %d pos: %.6x;", iPacket, packet.fileStruct)
+					log.Printf("    packet: %d pos: %.6x;", iPacket, packet.fileStruct)
 					if packet.fileStruct >= pointerEnd {
 						break
 					}
@@ -454,6 +447,7 @@ func (ms *Mesh) Extract(textures []string, outfname string) ([]string, error) {
 					pointerEnd = packet.fileStruct
 				}
 
+				fmt.Fprintf(ofile, "o obj_%.6x\n", object.fileStruct)
 				ofile.WriteString(bufv)
 				ofile.WriteString(bufvt)
 				fmt.Fprintf(ofile, "usemtl mat_%d\n", object.TextureId)
