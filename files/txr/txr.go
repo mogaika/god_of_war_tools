@@ -55,7 +55,13 @@ func (txr *Texture) Image(gfx *file_gfx.GFX, pal *file_gfx.GFX, igfx int, ipal i
 
 	log.Printf("Pallette: %s", pal.String())
 
-	switch gfx.Encoding {
+	encoding := gfx.Encoding
+
+	if gfx.Bpi == 4 {
+		encoding = 2
+	}
+
+	switch encoding {
 	case 0:
 		for y := 0; y < height; y++ {
 			for x := 0; x < width; x++ {
