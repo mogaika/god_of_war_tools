@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"path"
 	"strings"
 
@@ -139,8 +140,23 @@ func (nd *WadNode) Extract(outdir string) error {
 		//	log.Printf("extracting '%s' 0x%x : 0x%x", nd.Path, nd.Format, nd.Size)
 		if !nd.Extracted {
 			if ex, f := wadExporter[nd.Format]; f {
+				dumpfname := myPath + ".dump"
+
+				rdr, derr := nd.DataReader()
+				if derr == nil {
+					var f *os.File
+					f, derr = os.Create(dumpfname)
+					if derr == nil {
+						defer f.Close()
+						_, derr = io.Copy(f, rdr)
+					}
+				}
+				if derr != nil {
+					fmt.Errorf("Error when dumping '%s' -> '%s': %v", nd.Path, dumpfname, derr)
+				}
+
 				if err := ex.ExtractFromNode(nd, myPath); err != nil {
-					return err
+					return fmt.Errorf("Error when extracting '%s': %v", nd.Path, err)
 				}
 				nd.Extracted = true
 			}
@@ -329,10 +345,8 @@ func NewWad(f io.ReaderAt, version int) (wad *Wad, err error) {
 					}
 				}
 
-				// GoW 2 can link to other wads
-				// probably only in root nodes of other wads
-				if wad.Version == utils.GAME_VERSION_GOW_1 && node.LinkTo == nil {
-					return nil, fmt.Errorf("Unresolved link to '%s'", node.Name)
+				if node.LinkTo == nil {
+					return nil, fmt.Errorf(" ### Unresolved link to '%s'", node.Name)
 				}
 			} else {
 				node = wad.newNode(currentNode, name, NODE_TYPE_DATA)

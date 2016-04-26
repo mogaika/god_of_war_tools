@@ -56,7 +56,12 @@ func (txr *Texture) Image(gfx *file_gfx.GFX, pal *file_gfx.GFX, igfx int, ipal i
 	height := int(gfx.Height)
 
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
-	pallete := pal.GetPallet(ipal)
+	pallete, err := pal.GetPallet(ipal)
+
+	if err != nil {
+		return nil, err
+	}
+
 	data := gfx.Data[igfx]
 
 	encoding := gfx.Encoding
@@ -147,33 +152,17 @@ func (*Texture) ExtractFromNode(nd *wad.WadNode, outfname string) error {
 		gfxnd := nd.Find(txr.GfxName, true)
 		palnd := nd.Find(txr.PalName, true)
 
-		if gfxnd == nil {
-			return fmt.Errorf("Cannot find gfx '%s' for txd '%s'", txr.GfxName, nd.Path)
+		if gfxnd == nil || !gfxnd.Extracted || gfxnd.Cache == nil {
+			return fmt.Errorf("GFX '%s' not cached", txr.GfxName)
 		}
-		if palnd == nil {
-			return fmt.Errorf("Cannot find pal '%s' for txd '%s'", txr.PalName, nd.Path)
-		}
-
-		gfxread, err := gfxnd.DataReader()
-		if err != nil {
-			return err
-		}
-		palread, err := palnd.DataReader()
-		if err != nil {
-			return err
+		if palnd == nil || !palnd.Extracted || palnd.Cache == nil {
+			return fmt.Errorf("GFX '%s' not cached", txr.PalName)
 		}
 
-		gfxgfx, err := file_gfx.NewFromData(gfxread)
-		if err != nil {
-			return err
-		}
+		resultfiles, err := txr.Extract(
+			gfxnd.Cache.(*file_gfx.GFX),
+			palnd.Cache.(*file_gfx.GFX), outfname)
 
-		gfxpal, err := file_gfx.NewFromData(palread)
-		if err != nil {
-			return err
-		}
-
-		resultfiles, err := txr.Extract(gfxgfx, gfxpal, outfname)
 		if err != nil {
 			return err
 		}

@@ -7,6 +7,8 @@ import (
 	"image/color"
 	"io"
 	"log"
+
+	"github.com/mogaika/god_of_war_tools/files/wad"
 )
 
 const HEADER_SIZE = 0x18
@@ -20,7 +22,11 @@ type GFX struct {
 	Data     [][]byte
 }
 
-func (gfx *GFX) GetPallet(idx int) color.Palette {
+func init() {
+	wad.PregisterExporter(GFX_MAGIC, &GFX{})
+}
+
+func (gfx *GFX) GetPallet(idx int) (color.Palette, error) {
 	palbuf := gfx.Data[idx]
 
 	colors := gfx.Width * gfx.Height
@@ -41,17 +47,20 @@ func (gfx *GFX) GetPallet(idx int) color.Palette {
 		switch gfx.Height {
 		case 2:
 			pallet[i] = clr
+		case 32:
+			fallthrough
 		case 16:
 			blockid := i / 8
 			blockpos := i % 8
 
 			newpos := blockpos + (remap[blockid%4]+(blockid/4)*4)*8
 			pallet[newpos] = clr
+
 		default:
-			log.Fatalf("Wrong pallet height: %d", gfx.Height)
+			return nil, fmt.Errorf("Wrong pallet height: %d", gfx.Height)
 		}
 	}
-	return pallet
+	return pallet, nil
 }
 
 func (gfx *GFX) String() string {
@@ -108,4 +117,20 @@ func NewFromData(fgfx io.ReaderAt) (*GFX, error) {
 	}
 
 	return gfx, nil
+}
+
+func (*GFX) ExtractFromNode(nd *wad.WadNode, outfname string) error {
+	log.Printf("Gfx '%s' extraction", nd.Path)
+	reader, err := nd.DataReader()
+	if err != nil {
+		return err
+	}
+
+	mat, err := NewFromData(reader)
+	if err != nil {
+		return err
+	}
+
+	nd.Cache = mat
+	return nil
 }

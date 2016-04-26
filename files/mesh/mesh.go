@@ -276,6 +276,9 @@ func NewFromData(rdat io.Reader) (*Mesh, error) {
 	}
 
 	mdlCommentStart := u32(4)
+	if mdlCommentStart > uint32(len(file)) {
+		mdlCommentStart = uint32(len(file))
+	}
 
 	partsCount := u32(8)
 
@@ -366,6 +369,7 @@ func (ms *Mesh) Extract(textures []string, outfname string) ([]string, error) {
 		fmt.Fprintf(omtlFile, "newmtl mat_%d\n", i)
 		fmt.Fprintf(omtlFile, "Ka 1.000 1.000 1.000\nKd 1.000 1.000 1.000\nKs 0.000 0.000 0.000\n")
 		if tex != "" {
+			fmt.Fprintf(omtlFile, "d 1.000000\n") // for transparent textures parts
 			fmt.Fprintf(omtlFile, "map_Ka %s\nmap_Kd %s\n\n", tex, tex)
 		}
 	}
@@ -404,7 +408,9 @@ func (ms *Mesh) Extract(textures []string, outfname string) ([]string, error) {
 					packet := &packets[iPacket]
 
 					//log.Printf("    packet: %d pos: %.6x;", iPacket, packet.fileStruct)
-
+					if packet.fileStruct >= pointerEnd {
+						break
+					}
 					err, vifmeshs := VifRead1(ms.File[packet.fileStruct:pointerEnd], packet.fileStruct)
 					if err != nil {
 						return nil, err
