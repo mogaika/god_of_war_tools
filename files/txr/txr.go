@@ -15,6 +15,7 @@ import (
 	"github.com/mogaika/god_of_war_tools/utils"
 
 	file_gfx "github.com/mogaika/god_of_war_tools/files/gfx"
+	"github.com/mogaika/god_of_war_tools/files/wad"
 )
 
 type Texture struct {
@@ -24,6 +25,11 @@ type Texture struct {
 }
 
 const FILE_SIZE = 0x58
+const FILE_MAGIC = 0x7
+
+func init() {
+	wad.PregisterExporter(FILE_MAGIC, &Texture{})
+}
 
 func NewFromData(fin io.ReaderAt) (*Texture, error) {
 	buf := make([]byte, FILE_SIZE)
@@ -31,10 +37,10 @@ func NewFromData(fin io.ReaderAt) (*Texture, error) {
 		return nil, err
 	}
 
-	tex_indify := binary.LittleEndian.Uint32(buf[:4])
+	magic := binary.LittleEndian.Uint32(buf[:4])
 
-	if tex_indify != 7 {
-		return nil, errors.New("Not txr file. Magic is not valid.")
+	if magic != FILE_MAGIC {
+		return nil, errors.New("Wrong magic.")
 	}
 
 	tex := &Texture{
@@ -52,8 +58,6 @@ func (txr *Texture) Image(gfx *file_gfx.GFX, pal *file_gfx.GFX, igfx int, ipal i
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 	pallete := pal.GetPallet(ipal)
 	data := gfx.Data[igfx]
-
-	log.Printf("Pallette: %s", pal.String())
 
 	encoding := gfx.Encoding
 
@@ -126,4 +130,57 @@ func (txr *Texture) Extract(gfx *file_gfx.GFX, pal *file_gfx.GFX, out string) ([
 	}
 
 	return names, nil
+}
+
+func (*Texture) ExtractFromNode(nd *wad.WadNode, outfname string) error {
+	reader, err := nd.DataReader()
+	if err != nil {
+		return err
+	}
+
+	txr, err := NewFromData(reader)
+	if err != nil {
+		return err
+	}
+
+	if txr.GfxName != "" && txr.PalName != "" {
+		gfxnd := nd.Find(txr.GfxName, true)
+		palnd := nd.Find(txr.PalName, true)
+
+		if gfxnd == nil {
+			return fmt.Errorf("Cannot find gfx '%s' for txd '%s'", txr.GfxName, nd.Path)
+		}
+		if palnd == nil {
+			return fmt.Errorf("Cannot find pal '%s' for txd '%s'", txr.PalName, nd.Path)
+		}
+
+		gfxread, err := gfxnd.DataReader()
+		if err != nil {
+			return err
+		}
+		palread, err := palnd.DataReader()
+		if err != nil {
+			return err
+		}
+
+		gfxgfx, err := file_gfx.NewFromData(gfxread)
+		if err != nil {
+			return err
+		}
+
+		gfxpal, err := file_gfx.NewFromData(palread)
+		if err != nil {
+			return err
+		}
+
+		resultfiles, err := txr.Extract(gfxgfx, gfxpal, outfname)
+		if err != nil {
+			return err
+		}
+		log.Printf("Texture '%s' extracted: %s", nd.Path, resultfiles)
+
+		nd.ExtractedNames = resultfiles
+		nd.Cache = txr
+	}
+	return nil
 }

@@ -1,14 +1,17 @@
-package main
+package mesh
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
 	"path"
 
-	"github.com/mogaika/god_of_war_tools/utils"
+	"github.com/mogaika/god_of_war_tools/files/mat"
+	"github.com/mogaika/god_of_war_tools/files/wad"
 )
 
 type stUV struct {
@@ -35,58 +38,15 @@ type stBlock struct {
 	blend []stRGBA
 }
 
-var visuals_textures []string = []string{
-	"TXR_iffsExrtract_file12.png",
-	"TXR_tue_filestnBlock01e.png",
-	"TXR_file333.png",
-	"TXR__kensStuff2_file112.png",
-	"TXR_iffsExrtract_file14.png",
-	"TXR_Door03_statue_file7.png",
-	"TXR_or03_statue_file114.png",
-	"TXR_file322.png",
-	"TXR_file324.png",
-	"TXR_paulsEntryway_file4.png",
-	"TXR_atue_filestnBlock05.png",
-	"TXR_f2_filestnCornice02.png",
-	"TXR_iffsExrtract_file17.png",
-	"TXR_TimeDoor03_file274.png",
-	"TXR_ffsExrtract_file270.png",
-	"TXR_ffsExrtract_file311.png",
-	"TXR_ffsExrtract_file274.png",
-	"TXR_ffsExrtract_file320.png",
-	"TXR_file353.png",
-	"TXR_file336.png",
-}
-
-func main() {
-	for i := 1; i < len(os.Args); i++ {
-		Convert1(os.Args[i])
-	}
-	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\ATHN04D.WAD.ex\polySurface16564_0`)
-	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\SEWR01.WAD.ex\Sewer1b_0`)
-	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_BRSRK2.WAD.ex\berserkBlade_0`)
-	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\ARENA10.WAD.ex\Arena_0`)
-	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_HERO0.WAD.ex\hero_0`)
-	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\ATHN02A.WAD.ex\scaffoldTopFac_0`)
-	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\ATHN01A.WAD.ex\nightSky_0`)
-	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_SHELL.WAD.ex\MAI_0`)
-	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_PERM.WAD.ex\chest_0`)
-	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\ATHN01B.WAD.ex\insideShip06_0`)
-	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\ATHN01B.WAD.ex\insideShip07_0`)
-	Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_SHELL.WAD.ex\Visuals_0`)
-	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_SHELL.WAD.ex\firePlane_0`)
-
-	// problems with shit:
-	///Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_LGHTN0.WAD.ex\lightningRadius_0`)
-	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_PERM.WAD.ex\HUD_0`)
-	//Convert1(`E:\Downloads\God of War  NTSC(USA)  PS2DVD-9\unpacked\R_MEDHD2.WAD.ex\medheadNuke_0`)
-}
-
 // GS use 12:4 fixed point format
 // 1 << 12 = 4096
 const GSFixed12Point4Delimeter = 4096.0
 
-var debug *log.Logger
+const MESH_MAGIC = 0x1000f
+
+func init() {
+	wad.PregisterExporter(MESH_MAGIC, &Mesh{})
+}
 
 func VifRead1(vif []byte, debug_off uint32) (error, []*stBlock) {
 	result := make([]*stBlock, 0)
@@ -105,7 +65,7 @@ func VifRead1(vif []byte, debug_off uint32) (error, []*stBlock) {
 
 	pos := uint32(0)
 
-	spaces := "     "
+	// spaces := "     "
 
 	exit := false
 
@@ -133,9 +93,9 @@ func VifRead1(vif []byte, debug_off uint32) (error, []*stBlock) {
 			blocksize := uint32(components) * ((width * uint32(pk_num)) / 8)
 
 			signed := ((pk_dat2 & (1 << 6)) >> 6) ^ 1
-			address := (pk_dat2 & (1 << 7)) >> 7
+			// address := (pk_dat2 & (1 << 7)) >> 7
 
-			target := uint32(pk_dat1) | (uint32(pk_dat2&3) << 8)
+			// target := uint32(pk_dat1) | (uint32(pk_dat2&3) << 8)
 
 			/*
 				struct VIFCodeUnpack
@@ -150,7 +110,7 @@ func VifRead1(vif []byte, debug_off uint32) (error, []*stBlock) {
 				};
 			*/
 
-			grabbedType := "none"
+			// grabbedType := "none"
 
 			if cl == 3 || cl == 4 {
 				if pk_cmd == 0x6d && components == 4 && width == 16 && signed != 0 {
@@ -173,7 +133,7 @@ func VifRead1(vif []byte, debug_off uint32) (error, []*stBlock) {
 						bp += 8
 					}
 
-					grabbedType = " xyz"
+					// grabbedType = " xyz"
 				} else if pk_cmd == 0x6e && components == 4 && width == 8 && signed == 0 {
 					if currentblock.blend == nil {
 						currentblock.blend = make([]stRGBA, 0)
@@ -186,7 +146,7 @@ func VifRead1(vif []byte, debug_off uint32) (error, []*stBlock) {
 						bp += 4
 					}
 
-					grabbedType = "rgba"
+					// grabbedType = "rgba"
 				} else if pk_cmd == 0x65 && components == 2 && width == 16 && signed == 1 {
 					if currentblock.uvs == nil {
 						currentblock.uvs = make([]stUV, 0)
@@ -200,11 +160,15 @@ func VifRead1(vif []byte, debug_off uint32) (error, []*stBlock) {
 						bp += 4
 					}
 
-					grabbedType = " uv "
+					// grabbedType = " uv "
 				}
 			} else {
-				debug.Printf("%.6x vif unpack: [%s] %.2x elements: %.2x components: %d type: %.2d target: %.3x sign: %d addr: %d size: %.4x",
-					debug_off+pos, grabbedType, pk_cmd, pk_num, components, width, target, signed, address, blocksize)
+
+				/*
+					debug.Printf("%.6x vif unpack: [%s] %.2x elements: %.2x components: %d type: %.2d target: %.3x sign: %d addr: %d size: %.4x",
+						debug_off+pos, grabbedType, pk_cmd, pk_num, components, width, target, signed, address, blocksize)
+				*/
+
 				/*
 					if pk_num == 1 && components == 4 && width == 32 {
 						debug.Printf("    %.8x %.8x %.8x %.8x", u32(pos), u32(pos+4), u32(pos+8), u32(pos+12))
@@ -214,16 +178,16 @@ func VifRead1(vif []byte, debug_off uint32) (error, []*stBlock) {
 					}
 				*/
 			}
-			log.Printf("%s %.6x vif unpack: [%s] %.2x elements: %.2x components: %d type: %.2d target: %.3x sign: %d addr: %d size: %.4x",
-				spaces, debug_off+pos, grabbedType, pk_cmd, pk_num, components, width, target, signed, address, blocksize)
+			//log.Printf("%s %.6x vif unpack: [%s] %.2x elements: %.2x components: %d type: %.2d target: %.3x sign: %d addr: %d size: %.4x",
+			//	spaces, debug_off+pos, grabbedType, pk_cmd, pk_num, components, width, target, signed, address, blocksize)
 
 			pos += blocksize
 		} else {
 			switch pk_cmd {
 			case 0:
-				log.Printf("%s %.6x nop", spaces, debug_off+pos)
+				// log.Printf("%s %.6x nop", spaces, debug_off+pos)
 			case 01:
-				log.Printf("%s %.6x Stcycl wl=%.2x cl=%.2x", spaces, debug_off+pos, pk_dat2, pk_dat1)
+				// log.Printf("%s %.6x Stcycl wl=%.2x cl=%.2x", spaces, debug_off+pos, pk_dat2, pk_dat1)
 				cl = int(pk_dat1)
 				if cl == 1 {
 					if currentblock.trias != nil && len(currentblock.trias) > 0 {
@@ -250,11 +214,11 @@ func VifRead1(vif []byte, debug_off uint32) (error, []*stBlock) {
 				// }
 				// log.Printf("%s %.6x Stmod  mode=%s (%d)", spaces, debug_off+pos, cmode, pk_dat1)
 			case 0x14:
-				log.Printf("%s %.6x Mscall proc command", spaces, debug_off+pos)
+				//log.Printf("%s %.6x Mscall proc command", spaces, debug_off+pos)
 			case 0x30:
-				log.Printf("%s %.6x Strow  proc command", spaces, debug_off+pos)
+				//log.Printf("%s %.6x Strow  proc command", spaces, debug_off+pos)
 			default:
-				log.Printf("%s %.6x VIF command: %.2x:%.2x data: %.2x:%.2x", spaces, debug_off+pos, pk_cmd, pk_num, pk_dat1, pk_dat2)
+				//log.Printf("%s %.6x VIF command: %.2x:%.2x data: %.2x:%.2x", spaces, debug_off+pos, pk_cmd, pk_num, pk_dat1, pk_dat2)
 				exit = true
 			}
 		}
@@ -263,48 +227,39 @@ func VifRead1(vif []byte, debug_off uint32) (error, []*stBlock) {
 	return nil, result
 }
 
-type ModelPacket struct {
+type MeshPacket struct {
 	fileStruct uint32
 	Blocks     []stBlock
 }
 
-type ModelObject struct {
+type MeshObject struct {
 	fileStruct uint32
 	Type       uint16
 	TextureId  uint8
-	Packets    []ModelPacket
+	Packets    []MeshPacket
 }
 
-type ModelGroup struct {
+type MeshGroup struct {
 	fileStruct uint32
-	Objects    []ModelObject
+	Objects    []MeshObject
 }
 
-type ModelPart struct {
+type MeshPart struct {
 	fileStruct uint32
-	Groups     []ModelGroup
+	Groups     []MeshGroup
 }
 
-type Model struct {
-	parts []ModelPart
+type Mesh struct {
+	CommentStart uint32
+	Parts        []MeshPart
+	File         []byte
 }
 
-func Convert1(mdl string) error {
-	mdl = utils.PathPrepare(mdl)
-	log.Printf("File `%s`", mdl)
-	file, err := ioutil.ReadFile(mdl)
+func NewFromData(rdat io.Reader) (*Mesh, error) {
+	file, err := ioutil.ReadAll(rdat)
 	if err != nil {
-		return err
+		return nil, err
 	}
-
-	_, mdlFilename := path.Split(mdl)
-
-	logfile, err := os.Create(fmt.Sprintf("res/%s_log.log", mdlFilename))
-	if err != nil {
-		return err
-	}
-	defer logfile.Close()
-	debug = log.New(logfile, "", 0)
 
 	u32 := func(idx uint32) uint32 {
 		return binary.LittleEndian.Uint32(file[idx : idx+4])
@@ -316,17 +271,17 @@ func Convert1(mdl string) error {
 		return file[idx]
 	}
 
-	if u32(0) != 0x1000f {
-		return fmt.Errorf("Unknown mdl type")
+	if u32(0) != MESH_MAGIC {
+		return nil, fmt.Errorf("Unknown mesh type")
 	}
 
 	mdlCommentStart := u32(4)
 
 	partsCount := u32(8)
 
-	parts := make([]ModelPart, partsCount)
+	parts := make([]MeshPart, partsCount)
 
-	log.Printf("parts: %d", partsCount)
+	//log.Printf("parts: %d", partsCount)
 
 	// build tree for blocks boundary finding
 	for iPart := uint32(0); iPart < partsCount; iPart++ {
@@ -334,14 +289,14 @@ func Convert1(mdl string) error {
 		groupsCount := uint32(u16(pPart + 2))
 
 		parts[iPart].fileStruct = pPart
-		groups := make([]ModelGroup, groupsCount)
+		groups := make([]MeshGroup, groupsCount)
 
 		for iGroup := uint32(0); iGroup < groupsCount; iGroup++ {
 			pGroup := pPart + u32(pPart+iGroup*4+4)
 			objectsCount := u32(pGroup + 4)
 
 			groups[iGroup].fileStruct = pGroup
-			objects := make([]ModelObject, objectsCount)
+			objects := make([]MeshObject, objectsCount)
 			for iObject := uint32(0); iObject < objectsCount; iObject++ {
 				pObject := pGroup + u32(0xc+pGroup+iObject*4)
 				tObject := u16(pObject)
@@ -349,7 +304,7 @@ func Convert1(mdl string) error {
 
 				objects[iObject].fileStruct = pObject
 				objects[iObject].Type = tObject
-				packets := make([]ModelPacket, packetsCount)
+				packets := make([]MeshPacket, packetsCount)
 
 				/*
 					0x1d - surface mesh (bridge, skybox)
@@ -359,9 +314,9 @@ func Convert1(mdl string) error {
 				if tObject == 0xe || tObject == 0x1d || tObject == 0x24 {
 					objects[iObject].TextureId = u8(pObject + 8)
 
-					debug.Printf("%.6x : texture %.2d : %.8x %.8x %.8x %.8x %.8x %.8x %.8x %.8x", pObject, objects[iObject].TextureId,
-						u32(pObject), u32(pObject+4), u32(pObject+8), u32(pObject+12),
-						u32(pObject+16), u32(pObject+20), u32(pObject+24), u32(pObject+28))
+					//log.Printf("%.6x : texture %.2d : %.8x %.8x %.8x %.8x %.8x %.8x %.8x %.8x", pObject, objects[iObject].TextureId,
+					//	u32(pObject), u32(pObject+4), u32(pObject+8), u32(pObject+12),
+					//	u32(pObject+16), u32(pObject+20), u32(pObject+24), u32(pObject+28))
 
 					for iPacket := uint32(0); iPacket < packetsCount; iPacket++ {
 						pPacketInfo := pObject + 0x20 + iPacket*0x10
@@ -377,8 +332,22 @@ func Convert1(mdl string) error {
 		parts[iPart].Groups = groups
 	}
 
-	ofileName := fmt.Sprintf("out_%s.obj", mdlFilename)
-	ofile, err := os.Create(path.Join("res", ofileName))
+	mesh := &Mesh{CommentStart: mdlCommentStart,
+		Parts: parts,
+		File:  file}
+
+	return mesh, nil
+}
+
+func (ms *Mesh) Extract(textures []string, outfname string) ([]string, error) {
+	ofileName := outfname + ".obj"
+
+	err := os.MkdirAll(path.Dir(ofileName), 0777)
+	if err != nil {
+		return nil, err
+	}
+
+	ofile, err := os.Create(ofileName)
 	if err != nil {
 		log.Fatalf("Cannot create file %s: %v", ofileName, err)
 	}
@@ -386,45 +355,44 @@ func Convert1(mdl string) error {
 	vertIndex := 1
 	textIndex := 1
 
-	oMtlFileName := fmt.Sprintf("out_%s.mtl", mdlFilename)
-	omtlFile, err := os.Create(path.Join("res", oMtlFileName))
+	oMtlFileName := outfname + ".mtl"
+	_, oMtlRelativeName := path.Split(oMtlFileName)
+	omtlFile, err := os.Create(oMtlFileName)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	for i, tex := range visuals_textures {
-		fmt.Fprintf(omtlFile, `newmtl mat_%d
-Ka 1.000 1.000 1.000
-Kd 1.000 1.000 1.000
-Ks 0.000 0.000 0.000
-map_Ka %s
-map_Kd %s
-
-`, i, tex, tex)
+	for i, tex := range textures {
+		fmt.Fprintf(omtlFile, "newmtl mat_%d\n", i)
+		fmt.Fprintf(omtlFile, "Ka 1.000 1.000 1.000\nKd 1.000 1.000 1.000\nKs 0.000 0.000 0.000\n")
+		if tex != "" {
+			fmt.Fprintf(omtlFile, "map_Ka %s\nmap_Kd %s\n\n", tex, tex)
+		}
 	}
 	omtlFile.Close()
 
-	fmt.Fprintf(ofile, "mtllib %s\n\n", oMtlFileName)
+	fmt.Fprintf(ofile, "mtllib %s\n\n", oMtlRelativeName)
 
-	pointerEnd := mdlCommentStart
+	pointerEnd := ms.CommentStart
+	parts := ms.Parts
 	for iPart := len(parts) - 1; iPart >= 0; iPart-- {
 		part := &parts[iPart]
 		groups := part.Groups
 
-		log.Printf(" part: %d pos: %.6x; groups: %d", iPart, part.fileStruct, len(groups))
+		//log.Printf(" part: %d pos: %.6x; groups: %d", iPart, part.fileStruct, len(groups))
+		fmt.Fprintf(ofile, "g group_%.6x\n", part.fileStruct)
 
 		for iGroup := len(groups) - 1; iGroup >= 0; iGroup-- {
 			group := &groups[iGroup]
 			objects := group.Objects
 
-			log.Printf("  group: %d pos: %.6x; objects: %d", iGroup, group.fileStruct, len(objects))
-			fmt.Fprintf(ofile, "g group_%.6x\n", group.fileStruct)
+			//log.Printf("  group: %d pos: %.6x; objects: %d", iGroup, group.fileStruct, len(objects))
 
 			for iObject := len(objects) - 1; iObject >= 0; iObject-- {
 				object := &objects[iObject]
 				packets := object.Packets
 
-				log.Printf("   object: %d pos: %.6x; type: %.2x; textureid: %.2x", iObject, object.fileStruct, object.Type, object.TextureId)
+				//log.Printf("   object: %d pos: %.6x; type: %.2x; textureid: %.2x", iObject, object.fileStruct, object.Type, object.TextureId)
 				fmt.Fprintf(ofile, "o obj_%.6x\n", object.fileStruct)
 				swp := true
 
@@ -435,11 +403,11 @@ map_Kd %s
 				for iPacket := len(packets) - 1; iPacket >= 0; iPacket-- {
 					packet := &packets[iPacket]
 
-					log.Printf("    packet: %d pos: %.6x;", iPacket, packet.fileStruct)
+					//log.Printf("    packet: %d pos: %.6x;", iPacket, packet.fileStruct)
 
-					err, vifmeshs := VifRead1(file[packet.fileStruct:pointerEnd], packet.fileStruct)
+					err, vifmeshs := VifRead1(ms.File[packet.fileStruct:pointerEnd], packet.fileStruct)
 					if err != nil {
-						log.Printf("ERROR when vif reading: %v", err)
+						return nil, err
 					} else {
 						for _, mesh := range vifmeshs {
 							uv := mesh.uvs != nil && len(mesh.uvs) == len(mesh.trias)
@@ -491,5 +459,65 @@ map_Kd %s
 		}
 		pointerEnd = part.fileStruct
 	}
+
+	return []string{ofileName}, nil
+}
+
+func (*Mesh) ExtractFromNode(nd *wad.WadNode, outfname string) error {
+	log.Printf("Mesh '%s' extraction", nd.Name)
+
+	pathPrefix := "../"
+	for i := 0; i < nd.Depth; i++ {
+		pathPrefix += "../"
+	}
+
+	var textures []string
+	for _, v := range nd.Parent.SubNodes {
+		if v.Type == wad.NODE_TYPE_LINK {
+			v = v.LinkTo
+		}
+		if v.Format == mat.MAT_MAGIC {
+			if !v.Extracted || v.Cache == nil {
+				return errors.New("Material not loaded before mesh")
+			} else {
+				mat := v.Cache.(*mat.Material)
+				if mat == nil || mat.Layers == nil || len(mat.Layers) == 0 {
+					return fmt.Errorf("Material '%s' not cached ", v.Path)
+				}
+
+				if mat.Layers[0].Texture != "" {
+					t := nd.Find(mat.Layers[0].Texture, true)
+					if !t.Extracted || t.ExtractedNames == nil || len(t.ExtractedNames) == 0 {
+						return errors.New("Material not loaded before mesh")
+					} else {
+						tex := t.ExtractedNames[0]
+						texPath := path.Join(pathPrefix, tex)
+						textures = append(textures, texPath)
+					}
+				} else {
+					log.Printf("Mat without texture '%s'", v.Name)
+					textures = append(textures, "")
+				}
+			}
+		}
+	}
+
+	reader, err := nd.DataReader()
+	if err != nil {
+		return err
+	}
+
+	mesh, err := NewFromData(reader)
+	if err != nil {
+		return err
+	}
+
+	resNames, err := mesh.Extract(textures, outfname)
+	if err != nil {
+		return err
+	}
+
+	nd.ExtractedNames = resNames
+	nd.Cache = mesh
 	return nil
 }

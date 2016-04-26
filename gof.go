@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/mogaika/god_of_war_tools/commands"
+	_ "github.com/mogaika/god_of_war_tools/files"
 )
 
 type Command interface {
@@ -15,8 +16,7 @@ type Command interface {
 }
 
 var cmds map[string]Command = map[string]Command{
-	"unpack": &commands.Unpack{},
-	//	"image":   &commands.Image{},
+	"unpack":  &commands.Unpack{},
 	"extract": &commands.Extract{},
 }
 

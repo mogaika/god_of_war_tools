@@ -5,12 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"math"
 	"path"
+	"strings"
 
-	files_gfx "github.com/mogaika/god_of_war_tools/files/gfx"
-	files_txr "github.com/mogaika/god_of_war_tools/files/txr"
 	"github.com/mogaika/god_of_war_tools/utils"
 )
 
@@ -26,11 +24,17 @@ type WadNode struct {
 	Wad      *Wad
 	Type     int // NODE_TYPE_*
 	SubNodes []*WadNode
+	Depth    int
 
 	// NODE_TYPE_DATA
 	Size      uint32
 	Format    uint32 // first 4 bytes of data
 	DataStart uint32
+
+	// Export caches
+	Extracted      bool
+	Cache          interface{}
+	ExtractedNames []string
 
 	// NODE_TYPE_LINK
 	LinkTo *WadNode
@@ -41,6 +45,16 @@ type Wad struct {
 	reader io.ReaderAt
 
 	Version int // utils.GAME_VERSION_*
+}
+
+type WadFormatExporter interface {
+	ExtractFromNode(wadnode *WadNode, outfname string) error
+}
+
+var wadExporter map[uint32]WadFormatExporter = make(map[uint32]WadFormatExporter, 0)
+
+func PregisterExporter(format_magic uint32, exporter WadFormatExporter) {
+	wadExporter[format_magic] = exporter
 }
 
 func (nd *WadNode) StringPrefixed(prefix string) string {
@@ -59,7 +73,6 @@ func (nd *WadNode) StringPrefixed(prefix string) string {
 			res = fmt.Sprintf("%s%s}", res, prefix)
 		}
 		return res
-
 	case NODE_TYPE_LINK:
 		if nd.LinkTo != nil {
 			return fmt.Sprintf("%slink '%s' -> '%s'", prefix, nd.Name, nd.LinkTo.Path)
@@ -90,7 +103,7 @@ func (nd *WadNode) Find(name string, uptree bool) *WadNode {
 	return nil
 }
 
-func (nd *WadNode) DataReader() (io.ReaderAt, error) {
+func (nd *WadNode) DataReader() (*io.SectionReader, error) {
 	if nd.Type != NODE_TYPE_DATA {
 		return nil, errors.New("Node must be data for reading")
 	} else {
@@ -113,68 +126,23 @@ func (nd *WadNode) DataRead() ([]byte, error) {
 	}
 }
 
-func (nd *WadNode) Extract(outdir string, conv_knowns bool) error {
+func (nd *WadNode) Extract(outdir string) error {
 	if nd.Type == NODE_TYPE_DATA {
-		myPath := path.Join(outdir, nd.Path)
-		//myDir := path.Dir(myPath)
+		myPath := path.Join(outdir, strings.Replace(nd.Path, ":", "-", -1))
 
 		for _, sn := range nd.SubNodes {
-			if err := sn.Extract(outdir, conv_knowns); err != nil {
+			if err := sn.Extract(outdir); err != nil {
 				return err
 			}
 		}
 
-		if conv_knowns {
-			//log.Printf("extracting %s 0x%x : 0x%x", nd.Path, nd.Format, nd.Size)
-			switch nd.Format {
-			case 7:
-				reader, err := nd.DataReader()
-				if err != nil {
+		//	log.Printf("extracting '%s' 0x%x : 0x%x", nd.Path, nd.Format, nd.Size)
+		if !nd.Extracted {
+			if ex, f := wadExporter[nd.Format]; f {
+				if err := ex.ExtractFromNode(nd, myPath); err != nil {
 					return err
 				}
-
-				txr, err := files_txr.NewFromData(reader)
-				if err != nil {
-					return err
-				}
-
-				if txr.GfxName != "" && txr.PalName != "" {
-					log.Printf("Converted texture %v", txr.GfxName)
-					gfxnd := nd.Find(txr.GfxName, true)
-					palnd := nd.Find(txr.PalName, true)
-
-					if gfxnd == nil {
-						return fmt.Errorf("Cannot find gfx '%s' for txd '%s'", txr.GfxName, nd.Path)
-					}
-					if palnd == nil {
-						return fmt.Errorf("Cannot find pal '%s' for txd '%s'", txr.PalName, nd.Path)
-					}
-
-					gfxread, err := gfxnd.DataReader()
-					if err != nil {
-						return err
-					}
-					palread, err := palnd.DataReader()
-					if err != nil {
-						return err
-					}
-
-					gfxgfx, err := files_gfx.NewFromData(gfxread)
-					if err != nil {
-						return err
-					}
-
-					gfxpal, err := files_gfx.NewFromData(palread)
-					if err != nil {
-						return err
-					}
-
-					resultfile, err := txr.Extract(gfxgfx, gfxpal, myPath)
-					if err != nil {
-						return err
-					}
-					log.Printf("Texture extracted: %s", resultfile)
-				}
+				nd.Extracted = true
 			}
 		}
 	}
@@ -191,9 +159,9 @@ func (wad *Wad) Find(name string) *WadNode {
 	return nil
 }
 
-func (wad *Wad) Extract(outdir string, conv_knowns bool) error {
+func (wad *Wad) Extract(outdir string) error {
 	for _, nd := range wad.Nodes {
-		if err := nd.Extract(outdir, conv_knowns); err != nil {
+		if err := nd.Extract(outdir); err != nil {
 			return err
 		}
 	}
@@ -206,6 +174,10 @@ func (wad *Wad) newNode(parent *WadNode, name string, nodeType int) *WadNode {
 		Type:   nodeType,
 		Wad:    wad,
 		Name:   name,
+	}
+	node.Depth = 0
+	if parent != nil {
+		node.Depth = parent.Depth + 1
 	}
 	node.Path = name
 	if node.Parent != nil {

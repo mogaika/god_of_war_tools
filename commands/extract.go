@@ -15,15 +15,12 @@ type Extract struct {
 	OutFolder string
 	Version   int
 	Print     bool
-	All       bool
-	Conv      bool
 }
 
 func (u *Extract) DefineFlags(f *flag.FlagSet) {
 	f.StringVar(&u.WadFile, "wad", "", "*Wad file")
-	f.StringVar(&u.OutFolder, "out", "", " Directory to store result (if empty, not produce files)")
+	f.StringVar(&u.OutFolder, "out", "", " Directory to store result")
 	f.BoolVar(&u.Print, "print", false, " Print user-friendly tree representation of wad file")
-	f.BoolVar(&u.Conv, "conv", true, " Convert konwn files")
 	f.IntVar(&u.Version, "v", utils.GAME_VERSION_UNKNOWN, " Version of game: 0-Auto; 1-GOW1; 2-GOW2")
 }
 
@@ -50,7 +47,7 @@ func (u *Extract) Run() error {
 	}
 
 	if u.OutFolder != "" {
-		if err := wd.Extract(u.OutFolder, u.Conv); err != nil {
+		if err := wd.Extract(u.OutFolder); err != nil {
 			return err
 		}
 	}
