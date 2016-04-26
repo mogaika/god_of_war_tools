@@ -1,5 +1,6 @@
 package commands
 
+/*
 import (
 	"errors"
 	"flag"
@@ -82,7 +83,7 @@ func LoadTxr(fname string) (*txr.Texture, error) {
 	}
 	defer ftxr.Close()
 
-	return txr.Decode(ftxr)
+	return txr.NewFromData(ftxr)
 }
 
 func PrintInfo(texture *txr.Texture) {
@@ -165,3 +166,4 @@ func (u *Image) Run() error {
 	}
 	return nil
 }
+*/

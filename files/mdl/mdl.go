@@ -285,6 +285,10 @@ type ModelPart struct {
 	Groups     []ModelGroup
 }
 
+type Model struct {
+	parts []ModelPart
+}
+
 func Convert1(mdl string) error {
 	mdl = utils.PathPrepare(mdl)
 	log.Printf("File `%s`", mdl)

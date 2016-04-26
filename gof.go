@@ -15,8 +15,8 @@ type Command interface {
 }
 
 var cmds map[string]Command = map[string]Command{
-	"unpack":  &commands.Unpack{},
-	"image":   &commands.Image{},
+	"unpack": &commands.Unpack{},
+	//	"image":   &commands.Image{},
 	"extract": &commands.Extract{},
 }
 

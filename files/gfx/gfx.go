@@ -3,75 +3,105 @@ package gfx
 import (
 	"encoding/binary"
 	"errors"
-	"image"
+	"fmt"
 	"image/color"
 	"io"
 	"log"
-	"math"
 )
 
-func Decode(fgfx io.Reader, pal color.Palette) (image.Image, error) {
-	buf := make([]byte, 24)
-	readn, err := fgfx.Read(buf)
-	if err != nil && err != io.EOF || (readn != 0 && readn != 24) {
+const HEADER_SIZE = 0x18
+
+type GFX struct {
+	Width    uint32
+	Height   uint32
+	Encoding uint32
+	Bpi      uint32
+	Data     [][]byte
+}
+
+func (gfx *GFX) GetPallet(idx int) color.Palette {
+	palbuf := gfx.Data[idx]
+
+	colors := gfx.Width * gfx.Height
+
+	pallet := make(color.Palette, colors)
+	remap := []int{0, 2, 1, 3}
+
+	for i := range pallet {
+		si := i * 4
+
+		clr := color.RGBA{
+			R: palbuf[si],
+			G: palbuf[si+1],
+			B: palbuf[si+2],
+			A: byte(float32(palbuf[si+3]) * (255.0 / 128.0)),
+		}
+
+		switch gfx.Height {
+		case 2:
+			pallet[i] = clr
+		case 16:
+			blockid := i / 8
+			blockpos := i % 8
+
+			newpos := blockpos + (remap[blockid%4]+(blockid/4)*4)*8
+			pallet[newpos] = clr
+		default:
+			log.Fatalf("Wrong pallet height: %d", gfx.Height)
+		}
+	}
+	return pallet
+}
+
+func (gfx *GFX) String() string {
+	return fmt.Sprintf("GFX Width: %d Height: %d Bpi: %d Encoding: %d Datas: %d\n",
+		gfx.Width, gfx.Height, gfx.Bpi, gfx.Encoding, len(gfx.Data))
+}
+
+func NewFromData(fgfx io.ReaderAt) (*GFX, error) {
+	buf := make([]byte, HEADER_SIZE)
+	if _, err := fgfx.ReadAt(buf, 0); err != nil {
 		return nil, err
 	}
 
-	width := int(binary.LittleEndian.Uint32(buf[4:8]))
-	height := int(binary.LittleEndian.Uint32(buf[8:12]))
-	encoding := int(binary.LittleEndian.Uint32(buf[12:16]))
-	bpi := int(binary.LittleEndian.Uint32(buf[16:20]))
-
-	img := image.NewRGBA(image.Rect(0, 0, width, height))
-
-	log.Printf("Width: %v Height: %v Bpi: %v Encoding: %v\n", width, height, bpi, encoding)
-
-	data := make([]byte, (width*height*bpi)/8)
-	_, err = fgfx.Read(data)
-	if err != nil {
-		return img, err
+	gfx := &GFX{
+		Width:    binary.LittleEndian.Uint32(buf[4:8]),
+		Height:   binary.LittleEndian.Uint32(buf[8:12]),
+		Encoding: binary.LittleEndian.Uint32(buf[12:16]),
+		Bpi:      binary.LittleEndian.Uint32(buf[16:20]),
+		Data:     make([][]byte, binary.LittleEndian.Uint32(buf[20:24])),
 	}
 
-	switch bpi {
-	case 4:
-		newdata := make([]byte, width*height)
-		for i, v := range data {
-			newdata[i*2] = v & 0xf
-			newdata[i*2+1] = (v >> 4) & 0xf
+	dataBlockCount := int(binary.LittleEndian.Uint32(buf[20:24]))
+
+	log.Printf("%s", gfx.String())
+
+	for iData := 0; iData < dataBlockCount; iData++ {
+		rawData := make([]byte, (gfx.Width*gfx.Height*gfx.Bpi)/8)
+		var data []byte
+
+		_, err := fgfx.ReadAt(rawData, HEADER_SIZE)
+		if err != nil {
+			return nil, err
 		}
-		data = newdata
-		encoding = 2
-	case 8:
-	default:
-		return img, errors.New("Unknown gfx bpi")
-	}
-	switch encoding {
-	case 0:
-		for y := 0; y < height; y++ {
-			for x := 0; x < width; x++ {
-				// apply swizzle
-				block_location := (y&(math.MaxInt32^0xf))*width + (x&(math.MaxInt32^0xf))*2
-				swap_selector := (((y + 2) >> 2) & 0x1) * 4
-				posY := (((y & (math.MaxInt32 ^ 3)) >> 1) + (y & 1)) & 0x7
-				column_location := posY*width*2 + ((x+swap_selector)&0x7)*4
 
-				byte_num := ((y >> 1) & 1) + ((x >> 2) & 2) // 0,1,2,3
-
-				datapos := block_location + column_location + byte_num
-				palpos := data[datapos]
-
-				img.Set(x, y, pal[palpos])
+		switch gfx.Bpi {
+		case 4:
+			data = make([]byte, gfx.Width*gfx.Height)
+			for i, v := range rawData {
+				data[i*2] = v & 0xf
+				data[i*2+1] = (v >> 4) & 0xf
 			}
+		case 8:
+			data = rawData
+		case 32:
+			data = rawData
+		default:
+			return nil, errors.New("Unknown gfx bpi")
 		}
-	case 2:
-		for y := 0; y < height; y++ {
-			for x := 0; x < width; x++ {
-				img.Set(x, y, pal[data[x+y*width]])
-			}
-		}
-	default:
-		return img, errors.New("Unknown texture encoding")
+
+		gfx.Data[iData] = data
 	}
 
-	return img, nil
+	return gfx, nil
 }

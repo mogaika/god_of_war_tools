@@ -26,15 +26,15 @@ func DetectVersion(tokfile io.Reader) (int, error) {
 		return utils.GAME_VERSION_UNKNOWN, err
 	}
 
-	ver := utils.GAME_VERSION_GOW_1_1DVD
+	ver := utils.GAME_VERSION_GOW_1
 	strend := false
 	for _, i := range buffer {
 		if i == 0 {
 			strend = true
 		} else if i < 20 || i > 127 {
-			ver = utils.GAME_VERSION_GOW_2_1DVD
+			ver = utils.GAME_VERSION_GOW_2
 		} else if strend {
-			ver = utils.GAME_VERSION_GOW_2_1DVD
+			ver = utils.GAME_VERSION_GOW_2
 			break
 		}
 	}
@@ -150,9 +150,9 @@ func Decode(file io.ReadSeeker, version int) (files TokFile, err error) {
 	}
 
 	switch version {
-	case utils.GAME_VERSION_GOW_1_1DVD:
+	case utils.GAME_VERSION_GOW_1:
 		return parseTok1(file)
-	case utils.GAME_VERSION_GOW_2_1DVD:
+	case utils.GAME_VERSION_GOW_2:
 		return parseTok2(file)
 	case utils.GAME_VERSION_UNKNOWN:
 		return nil, errors.New("Unknown tok version for parsing")

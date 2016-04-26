@@ -3,186 +3,402 @@ package wad
 import (
 	"encoding/binary"
 	"errors"
-	"hash/crc32"
+	"fmt"
 	"io"
 	"log"
 	"math"
-	"os"
 	"path"
 
+	files_gfx "github.com/mogaika/god_of_war_tools/files/gfx"
+	files_txr "github.com/mogaika/god_of_war_tools/files/txr"
 	"github.com/mogaika/god_of_war_tools/utils"
 )
 
-func DetectVersion(file io.Reader) (int, error) {
-	buffer := make([]byte, 4)
-	_, err := file.Read(buffer)
-	if err != nil {
-		return utils.GAME_VERSION_UNKNOWN, err
-	}
+const (
+	NODE_TYPE_DATA = iota
+	NODE_TYPE_LINK
+)
 
-	first_tag := binary.LittleEndian.Uint32(buffer)
-	switch first_tag {
-	case 0x378:
-		return utils.GAME_VERSION_GOW_1_1DVD, nil
-	case 0x15:
-		return utils.GAME_VERSION_GOW_2_1DVD, nil
-	default:
-		return utils.GAME_VERSION_UNKNOWN, errors.New("Cannot detect version")
-	}
+type WadNode struct {
+	Name     string // can be empty
+	Path     string
+	Parent   *WadNode
+	Wad      *Wad
+	Type     int // NODE_TYPE_*
+	SubNodes []*WadNode
+
+	// NODE_TYPE_DATA
+	Size      uint32
+	Format    uint32 // first 4 bytes of data
+	DataStart uint32
+
+	// NODE_TYPE_LINK
+	LinkTo *WadNode
 }
 
-func dataPacket(f io.Reader, size uint32, name, outdir string) {
-	if size != 0 && name != "" {
-		fname := path.Join(outdir, name)
-		log.Printf("Creating file %s\n", fname)
-		of, err := os.Create(fname)
-		if err != nil {
-			log.Printf("Cannot open file \"%s\" for writing: %v\n", fname, err)
-		} else {
-			defer of.Close()
-			_, err := io.CopyN(of, f, int64(size))
-			if err != nil {
-				log.Printf("Error when writing data to file \"%s\":%v\n", fname, err)
+type Wad struct {
+	Nodes  []*WadNode
+	reader io.ReaderAt
+
+	Version int // utils.GAME_VERSION_*
+}
+
+func (nd *WadNode) StringPrefixed(prefix string) string {
+	switch nd.Type {
+	case NODE_TYPE_DATA:
+		res := fmt.Sprintf("%sdata size: 0x%.6x format: 0x%.8x start: 0x%.8x '%s'",
+			prefix, nd.Size, nd.DataStart, nd.Format, nd.Name)
+
+		if len(nd.SubNodes) > 0 {
+			postfix := prefix + "  "
+			res += " {\n"
+
+			for _, n := range nd.SubNodes {
+				res += fmt.Sprintf("%s\n", n.StringPrefixed(postfix))
 			}
+			res = fmt.Sprintf("%s%s}", res, prefix)
 		}
+		return res
+
+	case NODE_TYPE_LINK:
+		if nd.LinkTo != nil {
+			return fmt.Sprintf("%slink '%s' -> '%s'", prefix, nd.Name, nd.LinkTo.Path)
+		} else {
+			return fmt.Sprintf("%slink '%s' #UNRESOLVED_LINK#", prefix, nd.Name)
+		}
+	}
+	return prefix + "! ! ! ! unknown node type\n"
+}
+
+func (nd *WadNode) String() string {
+	return nd.StringPrefixed("")
+}
+
+func (nd *WadNode) Find(name string, uptree bool) *WadNode {
+	for _, v := range nd.SubNodes {
+		if v.Name == name {
+			return v
+		}
+	}
+	if uptree {
+		if nd.Parent != nil {
+			return nd.Parent.Find(name, uptree)
+		} else {
+			return nd.Wad.Find(name)
+		}
+	}
+	return nil
+}
+
+func (nd *WadNode) DataReader() (io.ReaderAt, error) {
+	if nd.Type != NODE_TYPE_DATA {
+		return nil, errors.New("Node must be data for reading")
+	} else {
+		return io.NewSectionReader(nd.Wad.reader, int64(nd.DataStart), int64(nd.Size)), nil
 	}
 }
 
-func Unpack(f io.ReadSeeker, outdir string, version int) (err error) {
-	if version == utils.GAME_VERSION_UNKNOWN {
-		version, err = DetectVersion(f)
-		if err != nil {
-			return err
-		}
-		if version == utils.GAME_VERSION_UNKNOWN {
-			return errors.New("Unknown version of WAD")
-		}
-		f.Seek(0, os.SEEK_SET)
+func (nd *WadNode) DataRead() ([]byte, error) {
+	rdr, err := nd.DataReader()
+	if err != nil {
+		return nil, err
 	}
 
-	os.Mkdir(outdir, 0666)
-	item := make([]byte, 32)
-	data := false
+	buf := make([]byte, nd.Size)
+	_, err = rdr.ReadAt(buf, 0)
+	if err != nil {
+		return nil, err
+	} else {
+		return buf, nil
+	}
+}
 
-	tab := ""
-	datarr := make(map[string]uint32)
+func (nd *WadNode) Extract(outdir string, conv_knowns bool) error {
+	if nd.Type == NODE_TYPE_DATA {
+		myPath := path.Join(outdir, nd.Path)
+		//myDir := path.Dir(myPath)
 
-	for {
-		needadd := false
-
-		rpos, _ := f.Seek(0, os.SEEK_CUR)
-		n, err := f.Read(item)
-		if err != nil {
-			if err == io.EOF {
-				if n != 32 && n != 0 {
-					return errors.New("File end is corrupt")
-				} else {
-					return nil
-				}
-			} else {
+		for _, sn := range nd.SubNodes {
+			if err := sn.Extract(outdir, conv_knowns); err != nil {
 				return err
 			}
 		}
 
+		if conv_knowns {
+			//log.Printf("extracting %s 0x%x : 0x%x", nd.Path, nd.Format, nd.Size)
+			switch nd.Format {
+			case 7:
+				reader, err := nd.DataReader()
+				if err != nil {
+					return err
+				}
+
+				txr, err := files_txr.NewFromData(reader)
+				if err != nil {
+					return err
+				}
+
+				if txr.GfxName != "" && txr.PalName != "" {
+					log.Printf("Converted texture %v", txr.GfxName)
+					gfxnd := nd.Find(txr.GfxName, true)
+					palnd := nd.Find(txr.PalName, true)
+
+					if gfxnd == nil {
+						return fmt.Errorf("Cannot find gfx '%s' for txd '%s'", txr.GfxName, nd.Path)
+					}
+					if palnd == nil {
+						return fmt.Errorf("Cannot find pal '%s' for txd '%s'", txr.PalName, nd.Path)
+					}
+
+					gfxread, err := gfxnd.DataReader()
+					if err != nil {
+						return err
+					}
+					palread, err := palnd.DataReader()
+					if err != nil {
+						return err
+					}
+
+					gfxgfx, err := files_gfx.NewFromData(gfxread)
+					if err != nil {
+						return err
+					}
+
+					gfxpal, err := files_gfx.NewFromData(palread)
+					if err != nil {
+						return err
+					}
+
+					resultfile, err := txr.Extract(gfxgfx, gfxpal, myPath)
+					if err != nil {
+						return err
+					}
+					log.Printf("Texture extracted: %s", resultfile)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func (wad *Wad) Find(name string) *WadNode {
+	for _, v := range wad.Nodes {
+		if v.Name == name {
+			return v
+		}
+	}
+	return nil
+}
+
+func (wad *Wad) Extract(outdir string, conv_knowns bool) error {
+	for _, nd := range wad.Nodes {
+		if err := nd.Extract(outdir, conv_knowns); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (wad *Wad) newNode(parent *WadNode, name string, nodeType int) *WadNode {
+	node := &WadNode{
+		Parent: parent,
+		Type:   nodeType,
+		Wad:    wad,
+		Name:   name,
+	}
+	node.Path = name
+	if node.Parent != nil {
+		node.Path = path.Join(node.Parent.Path, node.Path)
+	}
+	return node
+}
+
+func (wad *Wad) DetectVersion() (int, error) {
+	wad.Version = utils.GAME_VERSION_UNKNOWN
+
+	var buffer [4]byte
+	_, err := wad.reader.ReadAt(buffer[:], 0)
+	if err != nil {
+		return wad.Version, err
+	}
+
+	first_tag := binary.LittleEndian.Uint32(buffer[:])
+	switch first_tag {
+	case 0x378:
+		wad.Version = utils.GAME_VERSION_GOW_1
+	case 0x15:
+		wad.Version = utils.GAME_VERSION_GOW_2
+	default:
+		return wad.Version, errors.New("Cannot detect version")
+	}
+	return wad.Version, nil
+}
+
+func NewWad(f io.ReaderAt, version int) (wad *Wad, err error) {
+	wad = &Wad{
+		reader:  f,
+		Version: version,
+	}
+
+	if version == utils.GAME_VERSION_UNKNOWN {
+		wad.Version, err = wad.DetectVersion()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	item := make([]byte, 0x20)
+	newGroupTag := false
+	var currentNode *WadNode
+
+	pos := int64(0)
+
+	for {
+		const (
+			PACK_STUFF = iota
+			PACK_UNKNOWN
+			PACK_GROUP_START
+			PACK_GROUP_END
+			PACK_DATA
+		)
+		pack_id := PACK_STUFF
+
+		data_pos := pos + 0x20
+		n, err := f.ReadAt(item, pos)
+		if err != nil {
+			if err == io.EOF {
+				if n != 0x20 && n != 0 {
+					return nil, errors.New("File end is corrupt")
+				} else {
+					break
+				}
+			} else {
+				return nil, err
+			}
+		}
+
 		tag := binary.LittleEndian.Uint16(item[0:2])
-		//		param := binary.LittleEndian.Uint16(item[2:4])
 		size := binary.LittleEndian.Uint32(item[4:8])
 		name := utils.BytesToString(item[8:32])
 
-		print := true
-
-		if version == utils.GAME_VERSION_GOW_2_1DVD {
-			if !data {
-				switch tag {
-				case 0x15: // file header start
-				case 0x02: // file header group start
-				case 0x03: // file header group end
-				case 0x16: // file header pop heap
-				case 0x13: // file data start
-					data = true
-				}
-			} else {
-				switch tag {
-				case 0x02: // file data group start
-				case 0x03: // file data group end
-				case 0x09: // file data mesh ?
-					fallthrough
-				case 0x01: // file data packet
-					//	dataPacket(f, size, name, outdir)
-				}
+		switch wad.Version {
+		case utils.GAME_VERSION_GOW_2:
+			switch tag {
+			case 0x01: // file data packet
+				pack_id = PACK_DATA
+			case 0x02: // file header group start
+				pack_id = PACK_GROUP_START
+			case 0x03: // file header group end
+				pack_id = PACK_GROUP_END
+			case 0x13: // file data start
+				pack_id = PACK_STUFF
+			case 0x15: // file header start
+				pack_id = PACK_STUFF
+			case 0x16: // file header pop heap
+				pack_id = PACK_STUFF
+			case 0: // entity count
+				size = 0
+				pack_id = PACK_STUFF
 			}
-		} else if version == utils.GAME_VERSION_GOW_1_1DVD {
-			/*
-					1e - param  bit - > desc
-				1 -> grouped with next file?
-				2 -> primary file in group?
-				3 -> file with data
-				4 -> ?
-				5 -> ?
-				6 ->
-				7 ->
-				8 ->
-			*/
-
-			if !data {
-				switch tag {
-				case 0x378: // file header start
-				case 0x28: // file header group start
-					needadd = true
-					print = false
-				case 0x32: // file header group end
-					tab = tab[:len(tab)-2]
-					print = false
-				case 0x3e7: // file header pop heap
-				case 0x29a: // file data start
-					data = true
-				}
-			} else {
-				switch tag {
-				case 0x18: // entity count
-					size = 0
-				case 0x28: // file data group start
-					needadd = true
-					print = false
-				case 0x32: // file data group end
-					tab = tab[:len(tab)-2]
-					print = false
-				case 0x70: // camera data
-					dataPacket(f, size, name, outdir)
-				case 0x71, 0x72: // TWK_
-					dataPacket(f, size, name, outdir)
-				case 0x1e: // file data packet
-					dataPacket(f, size, name, outdir)
-				}
+		case utils.GAME_VERSION_GOW_1:
+			switch tag {
+			case 0x1e: // file data packet
+				pack_id = PACK_DATA
+			case 0x28: // file data group start
+				pack_id = PACK_GROUP_START
+			case 0x32: // file data group end
+				pack_id = PACK_GROUP_END
+			case 0x378: // file header start
+				pack_id = PACK_STUFF
+			case 0x3e7: // file header pop heap
+				pack_id = PACK_STUFF
+			case 0x29a: // file data start
+				pack_id = PACK_STUFF
+			case 0x18: // entity count
+				size = 0
+				pack_id = PACK_STUFF
 			}
+		default:
+			return nil, errors.New("Unknown verison of game")
 		}
 
-		if print {
+		switch pack_id {
+		case PACK_GROUP_END:
+			newGroupTag = false
+			if currentNode == nil {
+				return nil, errors.New("Trying to end of not started group")
+			} else {
+				currentNode = currentNode.Parent
+			}
+		case PACK_GROUP_START:
+			newGroupTag = true
+		case PACK_DATA:
+			var node *WadNode
+			// minimal size of data == 4, for storing data format
 			if size == 0 {
-				//log.Printf("%s%.8x:%.4x:%.4x:%.8x tag %s\n", tab, rpos, tag, param, size, name)
-			} else {
-				hsh := crc32.NewIEEE()
-				blck := make([]byte, size)
-				f.Read(blck)
-				hsh.Write(blck)
-
-				crc := hsh.Sum32()
-
-				//log.Printf("%s%.8x:%.4x:%.4x:%.8x data %s crc32 %v\n", tab, rpos, tag, param, size, name, crc)
-
-				if v, ok := datarr[name]; ok {
-					log.Println("Duplicate of ", name, v, crc)
-				} else {
-					datarr[name] = crc
+				node = wad.newNode(currentNode, name, NODE_TYPE_LINK)
+				// Try resolve link
+				if currentNode == nil {
+					return nil, errors.New("Link cannot be in root node")
 				}
+				for cn := currentNode; cn != nil && node.LinkTo == nil; cn = cn.Parent {
+					for _, v := range cn.SubNodes {
+						if v.Name == node.Name {
+							node.LinkTo = v
+						}
+					}
+				}
+				if node.LinkTo == nil {
+					for _, v := range wad.Nodes {
+						if v.Name == node.Name {
+							node.LinkTo = v
+						}
+					}
+				}
+
+				// GoW 2 can link to other wads
+				// probably only in root nodes of other wads
+				if wad.Version == utils.GAME_VERSION_GOW_1 && node.LinkTo == nil {
+					return nil, fmt.Errorf("Unresolved link to '%s'", node.Name)
+				}
+			} else {
+				node = wad.newNode(currentNode, name, NODE_TYPE_DATA)
+
+				var bfmt [4]byte
+				_, err := wad.reader.ReadAt(bfmt[:], data_pos)
+				if err != nil {
+					return nil, err
+				}
+				node.Format = binary.LittleEndian.Uint32(bfmt[0:4])
 			}
+			node.Size = size
+			node.DataStart = uint32(data_pos)
+
+			if currentNode == nil {
+				wad.Nodes = append(wad.Nodes, node)
+			} else {
+				currentNode.SubNodes = append(currentNode.SubNodes, node)
+			}
+
+			if newGroupTag {
+				newGroupTag = false
+				currentNode = node
+			}
+		case PACK_STUFF:
 		}
 
-		if needadd {
-			tab += "- "
-		}
+		/*
+			if size == 0 {
+				log.Printf("%.8x:%.4x:%.8x tag  '%s'", rpos, tag, size, name)
+			} else {
+				log.Printf("%.8x:%.4x:%.8x data '%s'", rpos, tag, size, name)
+			}
+		*/
 
 		off := (size + 15) & (15 ^ math.MaxUint32)
-		f.Seek(int64(off)+rpos+32, os.SEEK_SET)
+		pos = int64(off) + pos + 0x20
 	}
+
+	return wad, nil
 }
