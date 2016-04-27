@@ -128,39 +128,43 @@ func (nd *WadNode) DataRead() ([]byte, error) {
 	}
 }
 
-func (nd *WadNode) Extract(outdir string) error {
+func (nd *WadNode) Extract(outdir string, dump bool) error {
 	if nd.Type == NODE_TYPE_DATA {
 		myPath := path.Join(outdir, strings.Replace(nd.Path, ":", "-", -1))
 
 		for _, sn := range nd.SubNodes {
-			if err := sn.Extract(outdir); err != nil {
+			if err := sn.Extract(outdir, dump); err != nil {
 				return err
 			}
 		}
 
 		//	log.Printf("extracting '%s' 0x%x : 0x%x", nd.Path, nd.Format, nd.Size)
 		if !nd.Extracted {
-			if ex, f := wadExporter[nd.Format]; f {
+			if dump {
 				dumpfname := myPath + ".dump"
 
 				rdr, derr := nd.DataReader()
 				if derr == nil {
-					var f *os.File
-					f, derr = os.Create(dumpfname)
-					if derr == nil {
-						defer f.Close()
-						_, derr = io.Copy(f, rdr)
+					if derr = os.MkdirAll(path.Dir(dumpfname), 0777); derr == nil {
+						var f *os.File
+						f, derr = os.Create(dumpfname)
+						if derr == nil {
+							defer f.Close()
+							_, derr = io.Copy(f, rdr)
+						}
 					}
 				}
 				if derr != nil {
 					fmt.Errorf("Error when dumping '%s' -> '%s': %v", nd.Path, dumpfname, derr)
 				}
+			}
 
+			if ex, f := wadExporter[nd.Format]; f {
 				if err := ex.ExtractFromNode(nd, myPath); err != nil {
 					return fmt.Errorf("Error when extracting '%s': %v", nd.Path, err)
 				}
-				nd.Extracted = true
 			}
+			nd.Extracted = true
 		}
 	}
 
@@ -176,9 +180,9 @@ func (wad *Wad) Find(name string) *WadNode {
 	return nil
 }
 
-func (wad *Wad) Extract(outdir string) error {
+func (wad *Wad) Extract(outdir string, dump bool) error {
 	for _, nd := range wad.Nodes {
-		if err := nd.Extract(outdir); err != nil {
+		if err := nd.Extract(outdir, dump); err != nil {
 			return err
 		}
 	}
@@ -345,8 +349,9 @@ func NewWad(f io.ReaderAt, version int) (wad *Wad, err error) {
 						}
 					}
 				}
-
-				log.Printf(" ### Unresolved link to '%s'", node.Name)
+				if node.LinkTo == nil {
+					log.Printf(" ### Unresolved link to '%s'", node.Name)
+				}
 			} else {
 				node = wad.newNode(currentNode, name, NODE_TYPE_DATA)
 
