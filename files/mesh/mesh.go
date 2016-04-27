@@ -206,12 +206,29 @@ func VifRead1(vif []byte, debug_off uint32) (error, []*stBlock) {
 				log.Printf("%s %.6x nop", spaces, debug_off+tagpos)
 			case 01:
 				log.Printf("%s %.6x Stcycl wl=%.2x cl=%.2x", spaces, debug_off+tagpos, pk_dat2, pk_dat1)
+			case 05:
+				cmode := " pos "
+				/*	 Decompression modes
+				Normal = 0,
+				OffsetDecompression, // would conflict with vif code
+				Difference
+				*/
+				switch pk_dat1 {
+				case 1:
+					cmode = "[pos]"
+				case 2:
+					cmode = "[cur]"
+				}
+				log.Printf("%s %.6x Stmod  mode=%s (%d)", spaces, debug_off+tagpos, cmode, pk_dat1)
 			case 0x14:
 				log.Printf("%s %.6x Mscall proc command", spaces, debug_off+tagpos)
 				flush = true
+			case 0x30:
+				log.Printf("%s %.6x Strow  proc command", spaces, debug_off+tagpos)
+				pos += 0x10
 			default:
-				log.Printf("%s %.6x VIF command: %.2x:%.2x data: %.2x:%.2x", spaces, debug_off+tagpos, pk_cmd, pk_num, pk_dat1, pk_dat2)
-				exit = true
+				return fmt.Errorf("Unknown %.6x VIF command: %.2x:%.2x data: %.2x:%.2x",
+					debug_off+tagpos, pk_cmd, pk_num, pk_dat1, pk_dat2), nil
 			}
 		}
 
