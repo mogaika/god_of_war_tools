@@ -1,26 +1,4 @@
-### Current status: Alpha
-
-- Archives
-  - *.pak
-    - [x] Unpack files ([UnPacker](#unpacker))
-    - [ ] Pack files
-  - *_WAD
-    - [x] Extract files ([WadReader](#wadreader))
-		- Models
-			- [x] Vertexes
-			- [x] Normals
-			- [x] Textures
-			- [ ] Physics
-			- [ ] Animation
-			- [ ] Joints
-			- [ ] Shadowbox
-		- Materials
-			- [x] Texture image *.png
-			- [ ] Material information
-			- [ ] Animation
-		- Scripts
-		- Sounds
-		- [x] Videos
+##[Download latest binary](https://github.com/MogAika/god_of_war_tools/releases/tag/build-001)
 
 # UnPacker
 Tool for unpaking part\*.pak files using info from *GODOFWAR.TOC*
@@ -58,3 +36,27 @@ At this moment primary supports only GoW1
 Usage: *./god_of_war_tools.exe extract -wad ../ARCHIVE.WAD -out ./outDirectory -dump* 
 
 Help: *./god_of_war_tools.exe extract -h*
+
+### Current status of format reversing:
+
+- Archives
+  - *.pak
+    - [x] Unpack files ([UnPacker](#unpacker))
+    - [ ] Pack files
+  - *_WAD
+    - [x] Extract files ([WadReader](#wadreader))
+		- Models
+			- [x] Vertexes
+			- [x] Normals
+			- [x] Textures
+			- [ ] Physics
+			- [ ] Animation
+			- [ ] Joints
+			- [ ] Shadowbox
+		- Materials
+			- [x] Texture image *.png
+			- [ ] Material information
+			- [ ] Animation
+		- Scripts
+		- Sounds
+		- [x] Videos
