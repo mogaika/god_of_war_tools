@@ -2,21 +2,25 @@
 
 - Archives
   - *.pak
-    - [x] Extract files ([UnPacker](#unpacker))
+    - [x] Unpack files ([UnPacker](#unpacker))
     - [ ] Pack files
   - *_WAD
     - [x] Extract files ([WadReader](#wadreader))
-    - [ ] Pack files
-- Models
-  - [ ] Extraction
-    - [ ] Vertex data
-    - [ ] Textures data
-    - [ ] Physics
-    - [ ] Animation
-    - [ ] Meta
-- Textures 
-  - [x] Coverting TXR_(GFX+PAL) textures to *.png images (with lods) ([gfx2img](#gfx2img))
-  - [ ] Converting *.png to _GFX+_PAL
+		- Models
+			- [x] Vertexes
+			- [x] Normals
+			- [x] Textures
+			- [ ] Physics
+			- [ ] Animation
+			- [ ] Joints
+			- [ ] Shadowbox
+		- Materials
+			- [x] Texture image *.png
+			- [ ] Material information
+			- [ ] Animation
+		- Scripts
+		- Sounds
+		- [x] Videos
 
 # UnPacker
 Tool for unpaking part\*.pak files using info from *GODOFWAR.TOC*
@@ -35,24 +39,22 @@ Formats in archive:
 | WAD | game archives, can use [Wadreader](#Wadreader) to unpack |
 | VAG/VA1-5 | VAGp ADPCM sounds (depended on language) |
 | VPK | RAW ADPCM music |
-| TXT | SANITY.TXT used for check archive validity |
+| TXT | SANITY.TXT used to check data |
 
 After unpaking, summary size of all files being lower then size of archive. This is because, archive dublicate files for faster access on disk. (use -l option for see how much files is duplicated)
 
-# WadReader
-Tool for extracting files from *.wad archives. At this moment not extract all information.
+# Extractor
+Tool for extracting files from *.wad archives.
+Convert files to known file types with tree saving:
+- PNG
+- OBJ
+- MTL
+
+If argument *-dump true* presented, dump all files.
 
 Autodetecting version of GoW (GoW1 or GoW2)
+At this moment primary supports only GoW1
 
-Usage: *./god_of_war_tools.exe extract -wad ../ARCHIVE.WAD*
+Usage: *./god_of_war_tools.exe extract -wad ../ARCHIVE.WAD -out ./outDirectory -dump* 
 
 Help: *./god_of_war_tools.exe extract -h*
-
-# gfx2img
-Convert gfx + pal textures to png image
-
-Both game (GoW1 + GoW2) use same textures format
-
-Usage: *./god_of_war_tools.exe image -txr ../TXR_texture*
-
-Help: *./god_of_war_tools.exe image -h*
