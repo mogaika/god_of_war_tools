@@ -39,6 +39,35 @@ type stBlock struct {
 	debugPos uint32
 }
 
+type MeshPacket struct {
+	fileStruct uint32
+	Rows       uint16
+	Blocks     []*stBlock
+}
+
+type MeshObject struct {
+	fileStruct uint32
+	Type       uint16
+	MaterialId uint8
+	Packets    []*MeshPacket
+}
+
+type MeshGroup struct {
+	fileStruct uint32
+	Objects    []*MeshObject
+}
+
+type MeshPart struct {
+	fileStruct uint32
+	Groups     []*MeshGroup
+}
+
+type Mesh struct {
+	CommentStart uint32
+	Parts        []*MeshPart
+	File         []byte
+}
+
 // GS use 12:4 fixed point format
 // 1 << 12 = 4096
 const GSFixed12Point4Delimeter = 4096.0
@@ -311,35 +340,6 @@ func VifRead1(vif []byte, debug_off uint32) (error, []*stBlock) {
 	return nil, result
 }
 
-type MeshPacket struct {
-	fileStruct uint32
-	Rows       uint16
-	Blocks     []stBlock
-}
-
-type MeshObject struct {
-	fileStruct uint32
-	Type       uint16
-	TextureId  uint8
-	Packets    []MeshPacket
-}
-
-type MeshGroup struct {
-	fileStruct uint32
-	Objects    []MeshObject
-}
-
-type MeshPart struct {
-	fileStruct uint32
-	Groups     []MeshGroup
-}
-
-type Mesh struct {
-	CommentStart uint32
-	Parts        []MeshPart
-	File         []byte
-}
-
 func NewFromData(rdat io.Reader) (*Mesh, error) {
 	file, err := ioutil.ReadAll(rdat)
 	if err != nil {
@@ -366,55 +366,76 @@ func NewFromData(rdat io.Reader) (*Mesh, error) {
 	}
 
 	partsCount := u32(8)
+	parts := make([]*MeshPart, partsCount)
+	for iPart := range parts {
+		pPart := u32(0x50 + uint32(iPart)*4)
+		groupsCount := u16(pPart + 2)
 
-	parts := make([]MeshPart, partsCount)
+		part := &MeshPart{
+			fileStruct: pPart,
+			Groups:     make([]*MeshGroup, groupsCount),
+		}
+		parts[iPart] = part
 
-	//log.Printf("parts: %d", partsCount)
-
-	// build tree for blocks boundary finding
-	for iPart := uint32(0); iPart < partsCount; iPart++ {
-		pPart := u32(0x50 + iPart*4)
-		groupsCount := uint32(u16(pPart + 2))
-
-		parts[iPart].fileStruct = pPart
-		groups := make([]MeshGroup, groupsCount)
-
-		for iGroup := uint32(0); iGroup < groupsCount; iGroup++ {
-			pGroup := pPart + u32(pPart+iGroup*4+4)
+		for iGroup := range part.Groups {
+			pGroup := pPart + u32(pPart+uint32(iGroup)*4+4)
 			objectsCount := u32(pGroup + 4)
 
-			groups[iGroup].fileStruct = pGroup
-			objects := make([]MeshObject, objectsCount)
-			for iObject := uint32(0); iObject < objectsCount; iObject++ {
-				pObject := pGroup + u32(0xc+pGroup+iObject*4)
-				tObject := u16(pObject)
-				packetsCount := u32(pObject+0xc) * uint32(u8(pObject+0x18))
+			group := &MeshGroup{
+				fileStruct: pGroup,
+				Objects:    make([]*MeshObject, objectsCount),
+			}
 
-				objects[iObject].fileStruct = pObject
-				objects[iObject].Type = tObject
-				packets := make([]MeshPacket, packetsCount)
+			part.Groups[iGroup] = group
+
+			for iObject := range group.Objects {
+				pObject := pGroup + u32(0xc+pGroup+uint32(iObject)*4)
+
+				objectType := u16(pObject)
+				packetsCount := u32(pObject+0xc) * uint32(u8(pObject+0x18))
 
 				/*
 					0x1d - static mesh (bridge, skybox)
 					0x0e - dynamic? mesh (ship, hero, enemy)
 				*/
 
-				if tObject == 0xe || tObject == 0x1d || tObject == 0x24 {
-					objects[iObject].TextureId = u8(pObject + 8)
+				object := &MeshObject{
+					fileStruct: pGroup,
+					Type:       objectType,
+					Packets:    make([]*MeshPacket, 0),
+				}
+
+				group.Objects[iObject] = object
+
+				if objectType == 0xe || objectType == 0x1d || objectType == 0x24 {
+					object.MaterialId = u8(pObject + 8)
 
 					for iPacket := uint32(0); iPacket < packetsCount; iPacket++ {
 						pPacketInfo := pObject + 0x20 + iPacket*0x10
 						pPacket := pObject + u32(pPacketInfo+4)
 
-						packets[iPacket].fileStruct = pPacket
-						packets[iPacket].Rows = u16(pPacketInfo)
+						packet := &MeshPacket{
+							fileStruct: pPacket,
+							Rows:       u16(pPacketInfo),
+						}
+
+						object.Packets = append(object.Packets, packet)
+
+						packetSize := uint32(packet.Rows) * 0x10
+						packetEnd := packetSize + packet.fileStruct
+
+						log.Printf("    packet: %d pos: %.6x rows: %.4x end: %.6x",
+							iPacket, packet.fileStruct, packet.Rows, packetEnd)
+
+						err, packet.Blocks = VifRead1(file[packet.fileStruct:packetEnd], packet.fileStruct)
+						if err != nil {
+							return nil, err
+						}
 					}
 				}
-				objects[iObject].Packets = packets
+
 			}
-			groups[iGroup].Objects = objects
 		}
-		parts[iPart].Groups = groups
 	}
 
 	mesh := &Mesh{CommentStart: mdlCommentStart,
@@ -424,7 +445,7 @@ func NewFromData(rdat io.Reader) (*Mesh, error) {
 	return mesh, nil
 }
 
-func (ms *Mesh) Extract(textures []string, outfname string) ([]string, error) {
+func (ms *Mesh) ExtractObj(textures []string, outfname string) ([]string, error) {
 	ofileName := outfname + ".obj"
 
 	err := os.MkdirAll(path.Dir(ofileName), 0777)
@@ -437,6 +458,7 @@ func (ms *Mesh) Extract(textures []string, outfname string) ([]string, error) {
 		log.Fatalf("Cannot create file %s: %v", ofileName, err)
 	}
 	defer ofile.Close()
+
 	vertIndex := 1
 	textIndex := 1
 	normIndex := 1
@@ -460,25 +482,13 @@ func (ms *Mesh) Extract(textures []string, outfname string) ([]string, error) {
 
 	fmt.Fprintf(ofile, "mtllib %s\n\n", oMtlRelativeName)
 
-	parts := ms.Parts
-	for iPart := range parts {
-		part := &parts[iPart]
-		groups := part.Groups
-
-		log.Printf(" part: %d pos: %.6x; groups: %d", iPart, part.fileStruct, len(groups))
-
-		for iGroup := range groups {
-			group := &groups[iGroup]
-			objects := group.Objects
-
-			for iObject := range objects {
-				object := &objects[iObject]
-				packets := object.Packets
-
-				log.Printf("   object: %d pos: %.6x; type: %.2x; textureid: %.2x", iObject, object.fileStruct, object.Type, object.TextureId)
-
-				for iPacket := range packets {
-					packet := &packets[iPacket]
+	for iPart, part := range ms.Parts {
+		log.Printf(" part: %d pos: %.6x; groups: %d", iPart, part.fileStruct, len(part.Groups))
+		for iGroup, group := range part.Groups {
+			log.Printf("  group: %d pos: %.6x; objects: %d", iGroup, group.fileStruct, len(group.Objects))
+			for iObject, object := range group.Objects {
+				log.Printf("   object: %d pos: %.6x; type: %.2x; materialid: %.2x", iObject, object.fileStruct, object.Type, object.MaterialId)
+				for iPacket, packet := range object.Packets {
 					packetSize := uint32(packet.Rows) * 0x10
 					packetEnd := packetSize + packet.fileStruct
 
@@ -555,13 +565,14 @@ func (ms *Mesh) Extract(textures []string, outfname string) ([]string, error) {
 									normIndex++
 								}
 							}
-
-							fmt.Fprintf(ofile, "o obj_%.6x\n", packet.fileStruct)
-							ofile.WriteString(bufv)
-							ofile.WriteString(bufvt)
-							ofile.WriteString(bufvn)
-							fmt.Fprintf(ofile, "usemtl mat_%d\n", object.TextureId)
-							ofile.WriteString(buff)
+							if buff != "" {
+								fmt.Fprintf(ofile, "o obj_%.6x\n", packet.fileStruct)
+								ofile.WriteString(bufv)
+								ofile.WriteString(bufvt)
+								ofile.WriteString(bufvn)
+								fmt.Fprintf(ofile, "usemtl mat_%d\n", object.MaterialId)
+								ofile.WriteString(buff)
+							}
 						}
 					}
 				}
@@ -580,6 +591,7 @@ func (*Mesh) ExtractFromNode(nd *wad.WadNode, outfname string) error {
 		pathPrefix += "../"
 	}
 
+	// get path to textures files (already exported)
 	var textures []string
 	for _, v := range nd.Parent.SubNodes {
 		if v.Type == wad.NODE_TYPE_LINK {
@@ -621,7 +633,7 @@ func (*Mesh) ExtractFromNode(nd *wad.WadNode, outfname string) error {
 		return err
 	}
 
-	resNames, err := mesh.Extract(textures, outfname)
+	resNames, err := mesh.ExtractObj(textures, outfname)
 	if err != nil {
 		return err
 	}
