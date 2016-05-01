@@ -43,13 +43,13 @@ type Mesh struct {
 	File         []byte
 }
 
-const MESH_MAGIC = 0x1000f
+const MESH_MAGIC = 0x0001000f
 
 func init() {
 	wad.PregisterExporter(MESH_MAGIC, &Mesh{})
 }
 
-func NewFromData(rdat io.Reader) (*Mesh, error) {
+func NewFromData(rdat io.Reader, debug_file_name string) (*Mesh, error) {
 	file, err := ioutil.ReadAll(rdat)
 	if err != nil {
 		return nil, err
@@ -73,6 +73,13 @@ func NewFromData(rdat io.Reader) (*Mesh, error) {
 	if mdlCommentStart > uint32(len(file)) {
 		mdlCommentStart = uint32(len(file))
 	}
+
+	debugOut, err := os.Create("./logs/mesh_log-" + debug_file_name + ".txt")
+	if err != nil {
+		return nil, err
+	}
+	defer debugOut.Close()
+	debugLogger := log.New(debugOut, "", 0)
 
 	partsCount := u32(8)
 	parts := make([]*MeshPart, partsCount)
@@ -136,7 +143,7 @@ func NewFromData(rdat io.Reader) (*Mesh, error) {
 						log.Printf("    packet: %d pos: %.6x rows: %.4x end: %.6x",
 							iPacket, packet.fileStruct, packet.Rows, packetEnd)
 
-						err, packet.Blocks = VifRead1(file[packet.fileStruct:packetEnd], packet.fileStruct)
+						err, packet.Blocks = VifRead1(file[packet.fileStruct:packetEnd], debugLogger, packet.fileStruct)
 						if err != nil {
 							return nil, err
 						}
@@ -204,78 +211,73 @@ func (ms *Mesh) ExtractObj(textures []string, outfname string) ([]string, error)
 					log.Printf("    packet: %d pos: %.6x rows: %.4x end: %.6x",
 						iPacket, packet.fileStruct, packet.Rows, packetEnd)
 
-					err, vifmeshs := VifRead1(ms.File[packet.fileStruct:packetEnd], packet.fileStruct)
-					if err != nil {
-						return nil, err
-					} else {
-						swp := false
-						for _, mesh := range vifmeshs {
-							uv := mesh.uvs != nil && len(mesh.uvs) == len(mesh.trias)
-							vn := mesh.norms != nil
-							if vn && len(mesh.norms) != len(mesh.trias) {
-								vn = false
-								log.Printf("Norm not match verts : %d vs %d", len(mesh.norms), len(mesh.trias))
+					swp := false
+					for _, mesh := range packet.Blocks {
+						uv := mesh.uvs != nil && len(mesh.uvs) == len(mesh.trias)
+						vn := mesh.norms != nil
+						if vn && len(mesh.norms) != len(mesh.trias) {
+							vn = false
+							log.Printf("Norm not match verts : %d vs %d", len(mesh.norms), len(mesh.trias))
+						}
+
+						bufv := ""
+						bufvt := ""
+						bufvn := ""
+						buff := ""
+
+						for i := range mesh.trias {
+							t := &mesh.trias[i]
+
+							bufv += fmt.Sprintf("v %f %f %f\n", t.x, t.y, t.z)
+							if uv {
+								tx := &mesh.uvs[i]
+								bufvt += fmt.Sprintf("vt %f %f\n", tx.u, 1.0-tx.v)
+							}
+							if vn {
+								n := &mesh.norms[i]
+								bufvn += fmt.Sprintf("vn %f %f %f\n", n.x, n.y, n.z)
 							}
 
-							bufv := ""
-							bufvt := ""
-							bufvn := ""
-							buff := ""
-
-							for i := range mesh.trias {
-								t := &mesh.trias[i]
-
-								bufv += fmt.Sprintf("v %f %f %f\n", t.x, t.y, t.z)
-								if uv {
-									tx := &mesh.uvs[i]
-									bufvt += fmt.Sprintf("vt %f %f\n", tx.u, 1.0-tx.v)
-								}
-								if vn {
-									n := &mesh.norms[i]
-									bufvn += fmt.Sprintf("vn %f %f %f\n", n.x, n.y, n.z)
+							if !t.skip {
+								i2 := 1
+								i3 := 2
+								if swp {
+									i2, i3 = i3, i2
 								}
 
-								if !t.skip {
-									i2 := 1
-									i3 := 2
-									if swp {
-										i2, i3 = i3, i2
-									}
-
-									if uv && vn {
-										buff += fmt.Sprintf("f %d/%d/%d %d/%d/%d %d/%d/%d\n",
-											vertIndex-i3, textIndex-i3, normIndex-i3,
-											vertIndex-i2, textIndex-i2, normIndex-i3,
-											vertIndex, textIndex, normIndex)
-									} else if uv {
-										buff += fmt.Sprintf("f %d/%d %d/%d %d/%d\n",
-											vertIndex-i3, textIndex-i3, vertIndex-i2, textIndex-i2, vertIndex, textIndex)
-									} else if vn {
-										buff += fmt.Sprintf("f %d//%d %d//%d %d//%d\n",
-											vertIndex-i3, textIndex-i3, vertIndex-i2, normIndex-i2, normIndex, normIndex)
-									} else {
-										buff += fmt.Sprintf("f %d %d %d\n", vertIndex-i3, vertIndex-i2, vertIndex)
-									}
-
-									swp = !swp
+								if uv && vn {
+									buff += fmt.Sprintf("f %d/%d/%d %d/%d/%d %d/%d/%d\n",
+										vertIndex-i3, textIndex-i3, normIndex-i3,
+										vertIndex-i2, textIndex-i2, normIndex-i3,
+										vertIndex, textIndex, normIndex)
+								} else if uv {
+									buff += fmt.Sprintf("f %d/%d %d/%d %d/%d\n",
+										vertIndex-i3, textIndex-i3, vertIndex-i2, textIndex-i2, vertIndex, textIndex)
+								} else if vn {
+									buff += fmt.Sprintf("f %d//%d %d//%d %d//%d\n",
+										vertIndex-i3, textIndex-i3, vertIndex-i2, normIndex-i2, normIndex, normIndex)
+								} else {
+									buff += fmt.Sprintf("f %d %d %d\n", vertIndex-i3, vertIndex-i2, vertIndex)
 								}
 
-								vertIndex++
-								if uv {
-									textIndex++
-								}
-								if vn {
-									normIndex++
-								}
+								swp = !swp
 							}
-							if buff != "" {
-								fmt.Fprintf(ofile, "o obj_%.6x\n", packet.fileStruct)
-								ofile.WriteString(bufv)
-								ofile.WriteString(bufvt)
-								ofile.WriteString(bufvn)
-								fmt.Fprintf(ofile, "usemtl mat_%d\n", object.MaterialId)
-								ofile.WriteString(buff)
+
+							vertIndex++
+							if uv {
+								textIndex++
 							}
+							if vn {
+								normIndex++
+							}
+						}
+						if buff != "" {
+							fmt.Fprintf(ofile, "o obj_%.6x\n", packet.fileStruct)
+							ofile.WriteString(bufv)
+							ofile.WriteString(bufvt)
+							ofile.WriteString(bufvn)
+							fmt.Fprintf(ofile, "usemtl mat_%d\n", object.MaterialId)
+							ofile.WriteString(buff)
 						}
 					}
 				}
@@ -331,7 +333,7 @@ func (*Mesh) ExtractFromNode(nd *wad.WadNode, outfname string) error {
 		return err
 	}
 
-	mesh, err := NewFromData(reader)
+	mesh, err := NewFromData(reader, nd.Name)
 	if err != nil {
 		return err
 	}

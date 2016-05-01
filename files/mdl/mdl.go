@@ -4,16 +4,16 @@ import (
 	"encoding/binary"
 	"io"
 	"log"
-	"math"
 
 	"github.com/mogaika/god_of_war_tools/files/wad"
 )
 
 type Model struct {
 	TextureCount uint32
+	JointsCount  uint32
 }
 
-const MODEL_MAGIC = 0x2000f
+const MODEL_MAGIC = 0x0002000f
 const FILE_SIZE = 0x48
 
 func init() {
@@ -30,11 +30,15 @@ func NewFromData(rdr io.ReaderAt) (*Model, error) {
 	mdl := new(Model)
 
 	mdl.TextureCount = binary.LittleEndian.Uint32(file[0x14:0x18])
+	mdl.JointsCount = binary.LittleEndian.Uint32(file[0x1c:0x20])
 
-	log.Printf("     MDL: %f  %f  %f",
-		math.Float32frombits(binary.LittleEndian.Uint32(file[0x8:0xc])),
-		math.Float32frombits(binary.LittleEndian.Uint32(file[0xc:0x10])),
-		math.Float32frombits(binary.LittleEndian.Uint32(file[0x10:0x14])))
+	log.Printf("     MDL: %.8x %.8x %.8x",
+		binary.LittleEndian.Uint32(file[0x8:0xc]),
+		binary.LittleEndian.Uint32(file[0xc:0x10]),
+		binary.LittleEndian.Uint32(file[0x10:0x14]))
+
+	log.Printf("        Textures: %d  Joints: %d",
+		mdl.TextureCount, mdl.JointsCount)
 
 	return mdl, nil
 }

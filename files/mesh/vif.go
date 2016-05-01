@@ -32,10 +32,11 @@ type stBlock struct {
 }
 
 // GS use 12:4 fixed point format
-// 1 << 12 = 4096
-const GSFixed12Point4Delimeter = 4096.0
+// 1 << 4 = 16
+const GSFixed12Point4Delimeter = 16.0
+const GSFixed12Point4Delimeter1000 = 4096.0
 
-func VifRead1(vif []byte, debug_off uint32) (error, []*stBlock) {
+func VifRead1(vif []byte, debug *log.Logger, debug_off uint32) (error, []*stBlock) {
 	/*
 		What game send on vif:
 
@@ -117,10 +118,12 @@ func VifRead1(vif []byte, debug_off uint32) (error, []*stBlock) {
 						flush = true
 						handledBy = "meta"
 						for i := byte(0); i < pk_num; i++ {
-							bp := pos + uint32(i*0x10)
-							log.Printf("%s -  %.6x = %.4x %.4x %.4x %.4x", spaces, bp,
+							bp := pos + uint32(i)*0x10
+							debug.Printf("%s -  %.6x = %.4x %.4x %.4x %.4x  %.4x %.4x %.4x %.4x", spaces, debug_off+bp,
 								binary.LittleEndian.Uint16(vif[bp:bp+2]), binary.LittleEndian.Uint16(vif[bp+2:bp+4]),
-								binary.LittleEndian.Uint16(vif[bp+4:bp+6]), binary.LittleEndian.Uint16(vif[bp+6:bp+8]))
+								binary.LittleEndian.Uint16(vif[bp+4:bp+6]), binary.LittleEndian.Uint16(vif[bp+6:bp+8]),
+								binary.LittleEndian.Uint16(vif[bp+8:bp+10]), binary.LittleEndian.Uint16(vif[bp+10:bp+12]),
+								binary.LittleEndian.Uint16(vif[bp+12:bp+14]), binary.LittleEndian.Uint16(vif[bp+14:bp+16]))
 						}
 					case 2:
 						handledBy = " uv4"
@@ -181,7 +184,7 @@ func VifRead1(vif []byte, debug_off uint32) (error, []*stBlock) {
 				return fmt.Errorf("Block %.6x (cmd %.2x; %d bit; %d components; %d elements; sign %t; addr %t; target: %.3x; size: %.6x) not handled",
 					tagpos+debug_off, pk_cmd, width, components, pk_num, signed, address, target, blocksize), nil
 			} else {
-				log.Printf("%s %.6x vif unpack [%s]: %.2x elements: %.2x components: %d type: %.2d target: %.3x sign: %t addr: %t size: %.6x",
+				debug.Printf("%s %.6x vif unpack [%s]: %.2x elements: %.2x components: %d type: %.2d target: %.3x sign: %t addr: %t size: %.6x",
 					spaces, debug_off+tagpos, handledBy, pk_cmd, pk_num, components, width, target, signed, address, blocksize)
 			}
 
@@ -189,9 +192,9 @@ func VifRead1(vif []byte, debug_off uint32) (error, []*stBlock) {
 		} else {
 			switch pk_cmd {
 			case 0:
-				log.Printf("%s %.6x nop", spaces, debug_off+tagpos)
+				debug.Printf("%s %.6x nop", spaces, debug_off+tagpos)
 			case 01:
-				log.Printf("%s %.6x Stcycl wl=%.2x cl=%.2x", spaces, debug_off+tagpos, pk_dat2, pk_dat1)
+				debug.Printf("%s %.6x Stcycl wl=%.2x cl=%.2x", spaces, debug_off+tagpos, pk_dat2, pk_dat1)
 			case 05:
 				cmode := " pos "
 				/*	 Decompression modes
@@ -205,12 +208,12 @@ func VifRead1(vif []byte, debug_off uint32) (error, []*stBlock) {
 				case 2:
 					cmode = "[cur]"
 				}
-				log.Printf("%s %.6x Stmod  mode=%s (%d)", spaces, debug_off+tagpos, cmode, pk_dat1)
+				debug.Printf("%s %.6x Stmod  mode=%s (%d)", spaces, debug_off+tagpos, cmode, pk_dat1)
 			case 0x14:
-				log.Printf("%s %.6x Mscall proc command", spaces, debug_off+tagpos)
+				debug.Printf("%s %.6x Mscall proc command", spaces, debug_off+tagpos)
 				flush = true
 			case 0x30:
-				log.Printf("%s %.6x Strow  proc command", spaces, debug_off+tagpos)
+				debug.Printf("%s %.6x Strow  proc command", spaces, debug_off+tagpos)
 				pos += 0x10
 			default:
 				return fmt.Errorf("Unknown %.6x VIF command: %.2x:%.2x data: %.2x:%.2x",
@@ -243,16 +246,16 @@ func VifRead1(vif []byte, debug_off uint32) (error, []*stBlock) {
 						for i := range currentBlock.trias {
 							bp := i * 4
 							u := &currentBlock.uvs[i]
-							u.u = float32(int16(binary.LittleEndian.Uint16(block_data_uv[bp:bp+2]))) / GSFixed12Point4Delimeter
-							u.v = float32(int16(binary.LittleEndian.Uint16(block_data_uv[bp+2:bp+4]))) / GSFixed12Point4Delimeter
+							u.u = float32(int16(binary.LittleEndian.Uint16(block_data_uv[bp:bp+2]))) / GSFixed12Point4Delimeter1000
+							u.v = float32(int16(binary.LittleEndian.Uint16(block_data_uv[bp+2:bp+4]))) / GSFixed12Point4Delimeter1000
 						}
 					case 4:
 						currentBlock.uvs = make([]stUV, len(block_data_uv)/8)
 						for i := range currentBlock.trias {
 							bp := i * 8
 							u := &currentBlock.uvs[i]
-							u.u = float32(int32(binary.LittleEndian.Uint32(block_data_uv[bp:bp+4]))) / GSFixed12Point4Delimeter
-							u.v = float32(int32(binary.LittleEndian.Uint32(block_data_uv[bp+4:bp+8]))) / GSFixed12Point4Delimeter
+							u.u = float32(int32(binary.LittleEndian.Uint32(block_data_uv[bp:bp+4]))) / GSFixed12Point4Delimeter1000
+							u.v = float32(int32(binary.LittleEndian.Uint32(block_data_uv[bp+4:bp+8]))) / GSFixed12Point4Delimeter1000
 						}
 					}
 				}
@@ -282,7 +285,7 @@ func VifRead1(vif []byte, debug_off uint32) (error, []*stBlock) {
 
 				result = append(result, currentBlock)
 
-				log.Printf("%s = Flush xyzw:%t, rgba:%t, uv:%t, norm:%t", spaces,
+				debug.Printf("%s = Flush xyzw:%t, rgba:%t, uv:%t, norm:%t", spaces,
 					block_data_xyzw != nil, block_data_rgba != nil,
 					block_data_uv != nil, block_data_norm != nil)
 

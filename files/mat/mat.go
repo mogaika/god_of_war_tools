@@ -23,7 +23,7 @@ type Material struct {
 	Layers []Layer
 }
 
-const MAT_MAGIC = 0x8
+const MAT_MAGIC = 0x00000008
 const HEADER_SIZE = 0x38
 const LAYER_SIZE = 0x40
 

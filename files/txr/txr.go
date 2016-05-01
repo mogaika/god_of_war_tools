@@ -19,13 +19,17 @@ import (
 )
 
 type Texture struct {
-	GfxName    string
-	PalName    string
-	SubTxrName string
+	GfxName       string
+	PalName       string
+	SubTxrName    string
+	unkCoeff      int32
+	unkMultiplier float32
+	unkFlags1     uint16
+	unkFlags2     uint16
 }
 
 const FILE_SIZE = 0x58
-const FILE_MAGIC = 0x7
+const FILE_MAGIC = 0x00000007
 
 func init() {
 	wad.PregisterExporter(FILE_MAGIC, &Texture{})
@@ -44,10 +48,30 @@ func NewFromData(fin io.ReaderAt) (*Texture, error) {
 	}
 
 	tex := &Texture{
-		GfxName:    utils.BytesToString(buf[4:28]),
-		PalName:    utils.BytesToString(buf[28:52]),
-		SubTxrName: utils.BytesToString(buf[52:76]),
+		GfxName:       utils.BytesToString(buf[4:28]),
+		PalName:       utils.BytesToString(buf[28:52]),
+		SubTxrName:    utils.BytesToString(buf[52:76]),
+		unkCoeff:      int32(binary.LittleEndian.Uint32(buf[76:80])),
+		unkMultiplier: math.Float32frombits(binary.LittleEndian.Uint32(buf[80:84])),
+		unkFlags1:     binary.LittleEndian.Uint16(buf[84:86]),
+		unkFlags2:     binary.LittleEndian.Uint16(buf[86:88]),
 	}
+
+	if tex.unkCoeff > 0 {
+		return nil, fmt.Errorf("Unkonwn coeff %d", tex.unkCoeff)
+	}
+
+	// 0 - any; 8000 - alpha channel
+	if tex.unkFlags1 != 0 && tex.unkFlags1 != 0x8000 {
+		return nil, fmt.Errorf("Unkonwn unkFlags1 0x%.4x != 0", tex.unkFlags1)
+	}
+
+	// 1 - mask; 5d - alpha channel; 51 - font
+	if tex.unkFlags2 != 1 && tex.unkFlags2 != 0x5d && tex.unkFlags2 != 0x51 {
+		return nil, fmt.Errorf("Unkonwn unkFlags2 0x%.4x (0x1,0x5d,0x51)",
+			tex.unkFlags1)
+	}
+
 	return tex, nil
 }
 
