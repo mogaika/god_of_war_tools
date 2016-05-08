@@ -49,7 +49,7 @@ func init() {
 	wad.PregisterExporter(MESH_MAGIC, &Mesh{})
 }
 
-func NewFromData(rdat io.Reader, debug_file_name string) (*Mesh, error) {
+func NewFromData(rdat io.Reader, debug_file_name string, exlog io.Writer) (*Mesh, error) {
 	file, err := ioutil.ReadAll(rdat)
 	if err != nil {
 		return nil, err
@@ -73,13 +73,6 @@ func NewFromData(rdat io.Reader, debug_file_name string) (*Mesh, error) {
 	if mdlCommentStart > uint32(len(file)) {
 		mdlCommentStart = uint32(len(file))
 	}
-
-	debugOut, err := os.Create("./logs/mesh_log-" + debug_file_name + ".txt")
-	if err != nil {
-		return nil, err
-	}
-	defer debugOut.Close()
-	debugLogger := log.New(debugOut, "", 0)
 
 	partsCount := u32(8)
 	parts := make([]*MeshPart, partsCount)
@@ -140,10 +133,10 @@ func NewFromData(rdat io.Reader, debug_file_name string) (*Mesh, error) {
 						packetSize := uint32(packet.Rows) * 0x10
 						packetEnd := packetSize + packet.fileStruct
 
-						log.Printf("    packet: %d pos: %.6x rows: %.4x end: %.6x",
+						fmt.Fprintf(exlog, "    packet: %d pos: %.6x rows: %.4x end: %.6x\n",
 							iPacket, packet.fileStruct, packet.Rows, packetEnd)
 
-						err, packet.Blocks = VifRead1(file[packet.fileStruct:packetEnd], debugLogger, packet.fileStruct)
+						err, packet.Blocks = VifRead1(file[packet.fileStruct:packetEnd], packet.fileStruct, exlog)
 						if err != nil {
 							return nil, err
 						}
@@ -161,7 +154,7 @@ func NewFromData(rdat io.Reader, debug_file_name string) (*Mesh, error) {
 	return mesh, nil
 }
 
-func (ms *Mesh) ExtractObj(textures []string, outfname string) ([]string, error) {
+func (ms *Mesh) ExtractObj(textures []string, outfname string, exlog io.Writer) ([]string, error) {
 	ofileName := outfname + ".obj"
 
 	err := os.MkdirAll(path.Dir(ofileName), 0777)
@@ -199,16 +192,20 @@ func (ms *Mesh) ExtractObj(textures []string, outfname string) ([]string, error)
 	fmt.Fprintf(ofile, "mtllib %s\n\n", oMtlRelativeName)
 
 	for iPart, part := range ms.Parts {
-		log.Printf(" part: %d pos: %.6x; groups: %d", iPart, part.fileStruct, len(part.Groups))
+		fmt.Fprintf(exlog, " part: %d pos: %.6x; groups: %d\n", iPart, part.fileStruct, len(part.Groups))
 		for iGroup, group := range part.Groups {
-			log.Printf("  group: %d pos: %.6x; objects: %d", iGroup, group.fileStruct, len(group.Objects))
+			fmt.Fprintf(exlog, "  group: %d pos: %.6x; objects: %d\n", iGroup, group.fileStruct, len(group.Objects))
 			for iObject, object := range group.Objects {
-				log.Printf("   object: %d pos: %.6x; type: %.2x; materialid: %.2x", iObject, object.fileStruct, object.Type, object.MaterialId)
+				fmt.Fprintf(exlog, "   object: %d pos: %.6x; type: %.2x; materialid: %.2x\n", iObject, object.fileStruct, object.Type, object.MaterialId)
+				bufv := ""
+				bufvt := ""
+				bufvn := ""
+				buff := ""
 				for iPacket, packet := range object.Packets {
 					packetSize := uint32(packet.Rows) * 0x10
 					packetEnd := packetSize + packet.fileStruct
 
-					log.Printf("    packet: %d pos: %.6x rows: %.4x end: %.6x",
+					fmt.Fprintf(exlog, "    packet: %d pos: %.6x rows: %.4x end: %.6x\n",
 						iPacket, packet.fileStruct, packet.Rows, packetEnd)
 
 					swp := false
@@ -217,13 +214,8 @@ func (ms *Mesh) ExtractObj(textures []string, outfname string) ([]string, error)
 						vn := mesh.norms != nil
 						if vn && len(mesh.norms) != len(mesh.trias) {
 							vn = false
-							log.Printf("Norm not match verts : %d vs %d", len(mesh.norms), len(mesh.trias))
+							fmt.Fprintf(exlog, "Norm not match verts : %d vs %d\n", len(mesh.norms), len(mesh.trias))
 						}
-
-						bufv := ""
-						bufvt := ""
-						bufvn := ""
-						buff := ""
 
 						for i := range mesh.trias {
 							t := &mesh.trias[i]
@@ -271,15 +263,15 @@ func (ms *Mesh) ExtractObj(textures []string, outfname string) ([]string, error)
 								normIndex++
 							}
 						}
-						if buff != "" {
-							fmt.Fprintf(ofile, "o obj_%.6x\n", packet.fileStruct)
-							ofile.WriteString(bufv)
-							ofile.WriteString(bufvt)
-							ofile.WriteString(bufvn)
-							fmt.Fprintf(ofile, "usemtl mat_%d\n", object.MaterialId)
-							ofile.WriteString(buff)
-						}
 					}
+				}
+				if buff != "" {
+					fmt.Fprintf(ofile, "o obj_%.6x\n", object.fileStruct)
+					ofile.WriteString(bufv)
+					ofile.WriteString(bufvt)
+					ofile.WriteString(bufvn)
+					fmt.Fprintf(ofile, "usemtl mat_%d\n", object.MaterialId)
+					ofile.WriteString(buff)
 				}
 			}
 		}
@@ -289,7 +281,7 @@ func (ms *Mesh) ExtractObj(textures []string, outfname string) ([]string, error)
 }
 
 func (*Mesh) ExtractFromNode(nd *wad.WadNode, outfname string) error {
-	log.Printf("\n\nMesh '%s' extraction", nd.Name)
+	log.Printf("Mesh '%s' extraction", nd.Name)
 
 	pathPrefix := "../"
 	for i := 0; i < nd.Depth; i++ {
@@ -333,12 +325,18 @@ func (*Mesh) ExtractFromNode(nd *wad.WadNode, outfname string) error {
 		return err
 	}
 
-	mesh, err := NewFromData(reader, nd.Name)
+	logfile, err := os.Create(path.Join("logs", "mesh-log-"+nd.Name+".log"))
+	if err != nil {
+		return err
+	}
+	defer logfile.Close()
+
+	mesh, err := NewFromData(reader, nd.Name, logfile)
 	if err != nil {
 		return err
 	}
 
-	resNames, err := mesh.ExtractObj(textures, outfname)
+	resNames, err := mesh.ExtractObj(textures, outfname, logfile)
 	if err != nil {
 		return err
 	}
