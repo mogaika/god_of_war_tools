@@ -24,11 +24,12 @@ type stXYZ struct {
 }
 
 type stBlock struct {
-	uvs      []stUV
-	trias    []stXYZ
-	norms    []stNorm
-	blend    []stRGBA
-	debugPos uint32
+	Uvs      []stUV
+	Trias    []stXYZ
+	Norms    []stNorm
+	Blend    []stRGBA
+	Joints   []uint16
+	DebugPos uint32
 }
 
 // GS use 12:4 fixed point format
@@ -47,11 +48,11 @@ func VifRead1(vif []byte, debug_off uint32, debugOut io.Writer) (error, []*stBlo
 			only position (GUI)
 		[ rgba4_08u , xyzw4_16i ] -
 			color and position (GUI + Effects)
-		[   uv2_16i , xyzw4_16i ] -
+		[ uv2_16i , xyzw4_16i ] -
 			texture coords and position (simple model)
-		[   uv2_16i , rgba4_08u , xyzw4_16i ] -
+		[ uv2_16i , rgba4_08u , xyzw4_16i ] -
 			texture coords + blend for hand-shaded models + position
-		[   uv2_16i , norm2_16i , rgba4_08u , xyzw4_16i ] -
+		[ uv2_16i , norm2_16i , rgba4_08u , xyzw4_16i ] -
 			texture coords + normal vector + blend color + position for hard materials
 
 		Stcycl wl=1 cl=1
@@ -75,6 +76,7 @@ func VifRead1(vif []byte, debug_off uint32, debugOut io.Writer) (error, []*stBlo
 	var block_data_uv []byte = nil
 	block_data_uv_width := 0
 	var block_data_norm []byte = nil
+	var block_data_vertex_meta []byte = nil
 
 	pos := uint32(0)
 	spaces := "     "
@@ -124,6 +126,11 @@ func VifRead1(vif []byte, debug_off uint32, debugOut io.Writer) (error, []*stBlo
 								binary.LittleEndian.Uint16(vif[bp+4:bp+6]), binary.LittleEndian.Uint16(vif[bp+6:bp+8]),
 								binary.LittleEndian.Uint16(vif[bp+8:bp+10]), binary.LittleEndian.Uint16(vif[bp+10:bp+12]),
 								binary.LittleEndian.Uint16(vif[bp+12:bp+14]), binary.LittleEndian.Uint16(vif[bp+14:bp+16]))
+						}
+						switch target {
+						case 0x000, 0x155, 0x2ab:
+							block_data_vertex_meta = vif[pos : pos+blocksize]
+							handledBy = "vmta"
 						}
 					case 2:
 						handledBy = " uv4"
@@ -227,12 +234,12 @@ func VifRead1(vif []byte, debug_off uint32, debugOut io.Writer) (error, []*stBlo
 			// if we collect some data
 			if block_data_xyzw != nil {
 				currentBlock := &stBlock{}
-				currentBlock.debugPos = tagpos
+				currentBlock.DebugPos = tagpos
 
-				currentBlock.trias = make([]stXYZ, len(block_data_xyzw)/8)
-				for i := range currentBlock.trias {
+				currentBlock.Trias = make([]stXYZ, len(block_data_xyzw)/8)
+				for i := range currentBlock.Trias {
 					bp := i * 8
-					t := &currentBlock.trias[i]
+					t := &currentBlock.Trias[i]
 					t.x = float32(int16(binary.LittleEndian.Uint16(block_data_xyzw[bp:bp+2]))) / GSFixed12Point4Delimeter
 					t.y = float32(int16(binary.LittleEndian.Uint16(block_data_xyzw[bp+2:bp+4]))) / GSFixed12Point4Delimeter
 					t.z = float32(int16(binary.LittleEndian.Uint16(block_data_xyzw[bp+4:bp+6]))) / GSFixed12Point4Delimeter
@@ -242,18 +249,18 @@ func VifRead1(vif []byte, debug_off uint32, debugOut io.Writer) (error, []*stBlo
 				if block_data_uv != nil {
 					switch block_data_uv_width {
 					case 2:
-						currentBlock.uvs = make([]stUV, len(block_data_uv)/4)
-						for i := range currentBlock.trias {
+						currentBlock.Uvs = make([]stUV, len(block_data_uv)/4)
+						for i := range currentBlock.Trias {
 							bp := i * 4
-							u := &currentBlock.uvs[i]
+							u := &currentBlock.Uvs[i]
 							u.u = float32(int16(binary.LittleEndian.Uint16(block_data_uv[bp:bp+2]))) / GSFixed12Point4Delimeter1000
 							u.v = float32(int16(binary.LittleEndian.Uint16(block_data_uv[bp+2:bp+4]))) / GSFixed12Point4Delimeter1000
 						}
 					case 4:
-						currentBlock.uvs = make([]stUV, len(block_data_uv)/8)
-						for i := range currentBlock.trias {
+						currentBlock.Uvs = make([]stUV, len(block_data_uv)/8)
+						for i := range currentBlock.Trias {
 							bp := i * 8
-							u := &currentBlock.uvs[i]
+							u := &currentBlock.Uvs[i]
 							u.u = float32(int32(binary.LittleEndian.Uint32(block_data_uv[bp:bp+4]))) / GSFixed12Point4Delimeter1000
 							u.v = float32(int32(binary.LittleEndian.Uint32(block_data_uv[bp+4:bp+8]))) / GSFixed12Point4Delimeter1000
 						}
@@ -261,10 +268,10 @@ func VifRead1(vif []byte, debug_off uint32, debugOut io.Writer) (error, []*stBlo
 				}
 
 				if block_data_norm != nil {
-					currentBlock.norms = make([]stNorm, len(block_data_norm)/3)
-					for i := range currentBlock.norms {
+					currentBlock.Norms = make([]stNorm, len(block_data_norm)/3)
+					for i := range currentBlock.Norms {
 						bp := i * 3
-						n := &currentBlock.norms[i]
+						n := &currentBlock.Norms[i]
 						n.x = float32(int8(block_data_norm[bp])) / 100.0
 						n.y = float32(int8(block_data_norm[bp+1])) / 100.0
 						n.z = float32(int8(block_data_norm[bp+2])) / 100.0
@@ -272,14 +279,50 @@ func VifRead1(vif []byte, debug_off uint32, debugOut io.Writer) (error, []*stBlo
 				}
 
 				if block_data_rgba != nil {
-					currentBlock.blend = make([]stRGBA, len(block_data_norm)/4)
-					for i := range currentBlock.blend {
+					currentBlock.Blend = make([]stRGBA, len(block_data_rgba)/4)
+					for i := range currentBlock.Blend {
 						bp := i * 4
-						c := &currentBlock.blend[i]
-						c.r = block_data_norm[bp]
-						c.g = block_data_norm[bp+1]
-						c.b = block_data_norm[bp+2]
-						c.a = block_data_norm[bp+3]
+						c := &currentBlock.Blend[i]
+						c.r = block_data_rgba[bp]
+						c.g = block_data_rgba[bp+1]
+						c.b = block_data_rgba[bp+2]
+						c.a = block_data_rgba[bp+3]
+					}
+				}
+
+				if block_data_vertex_meta != nil {
+					blocks := len(block_data_vertex_meta) / 16
+					vertexes := len(currentBlock.Trias)
+
+					currentBlock.Joints = make([]uint16, vertexes)
+
+					vertnum := 0
+					for i := 0; i < blocks; i++ {
+						block := block_data_vertex_meta[i*16 : i*16+16]
+
+						block_verts := int(block[0])
+
+						/*
+							if block[12]*4 != block[13] {
+								return fmt.Errorf("Block joint id != block joint off: %v * 4 <= %v",
+									block[12], block[13]), nil
+							}
+						*/
+
+						for j := 0; j < block_verts; j++ {
+							currentBlock.Joints[vertnum+j] = uint16(block[12]) | (uint16((block[13] / 4)) << 8)
+						}
+
+						vertnum += block_verts
+
+						if block[1]&0x80 != 0 {
+							if i != blocks-1 {
+								return fmt.Errorf("Block count != blocks: %v <= %v", blocks, i), nil
+							}
+						}
+					}
+					if vertnum != vertexes {
+						return fmt.Errorf("Vertnum != vertexes count: %v <= %v", vertnum, vertexes), nil
 					}
 				}
 

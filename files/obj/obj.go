@@ -38,8 +38,8 @@ type Object struct {
 	jointsCount uint32
 
 	Mat1count  uint32
-	Vec2offset uint32 // or this is end of matrixes1
-	Vec2count  uint32 // maybe zero = 1,1=2,2=3,...
+	Vec2offset uint32
+	Vec2count  uint32
 	Mat3offset uint32
 	Mat3count  uint32
 	Vec4offset uint32
@@ -47,12 +47,12 @@ type Object struct {
 	Vec6offset uint32
 	Vec7offset uint32
 
-	Matrixes1 []mgl32.Mat4 // bind pose
+	Matrixes1 []mgl32.Mat4 // idle pose
 	Vectors2  [][4]uint32
-	Matrixes3 []mgl32.Mat4 // inverce matrices (not at all joints)
-	Vectors4  []mgl32.Vec4 // bind pose xyz
+	Matrixes3 []mgl32.Mat4 // inverce matrices bind pose (not at all joints, if not present, use idle inverted pose)
+	Vectors4  []mgl32.Vec4 // idle pose xyz
 	Vectors5  [][4]int32
-	Vectors6  []mgl32.Vec4 // bind pose scale
+	Vectors6  []mgl32.Vec4 // idle pose scale
 	Vectors7  []mgl32.Vec4
 }
 
@@ -225,8 +225,9 @@ func NewFromData(rdr io.ReaderAt) (*Object, error) {
 	}
 
 	s := ""
-	for _, m := range obj.Matrixes3 {
-		s += fmt.Sprintf("\n   m3: %#v", m)
+	for i, m := range obj.Matrixes3 {
+		//s += fmt.Sprintf("\n   m3: %#v", m)
+		s += fmt.Sprintf("\n   m3[%.2x]: %f %f %f", i, m[12], m[13], m[14])
 	}
 	/*for _, j := range obj.Joints {
 		s += fmt.Sprintf("\njoint [%.4x <=%.4x %.4x->%.4x]  %s:\nm1: %#v\nv4: %#v\nv5: %#v\nv6: %#v\nv7: %#v",
@@ -246,14 +247,20 @@ func (obj *Object) SaveJointsAsTree(outfname string) error {
 	defer f.Close()
 
 	for i, j := range obj.Joints {
+		local_pos := mgl32.Vec3{0, 0, 0}
 
-		local_pos := obj.Vectors4[i].Vec3()
-		for p := j.Parent; p != JOINT_CHILD_NONE; p = obj.Joints[p].Parent {
-
-			local_pos = mgl32.TransformCoordinate(local_pos, obj.Matrixes1[p])
-
-			//local_pos = local_pos.Add(obj.Vectors4[p].Vec3())
-			//local_pos = mgl32.Mat4ToQuat(obj.Matrixes1[p]).Rotate(local_pos)
+		if j.HaveInverse {
+			local_pos = mgl32.TransformCoordinate(local_pos, obj.Matrixes3[j.InvId].Inv())
+		} else {
+			for p := j.Parent; p != JOINT_CHILD_NONE; p = obj.Joints[p].Parent {
+				jp := &obj.Joints[p]
+				if jp.HaveInverse {
+					local_pos = mgl32.TransformCoordinate(local_pos, obj.Matrixes3[jp.InvId].Inv())
+					break
+				} else {
+					local_pos = mgl32.TransformCoordinate(local_pos, obj.Matrixes1[p])
+				}
+			}
 		}
 
 		log.Printf("%.4x = %f %f %f", i, local_pos.X(), local_pos.Y(), local_pos.Z())

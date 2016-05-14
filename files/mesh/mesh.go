@@ -12,6 +12,7 @@ import (
 
 	"github.com/mogaika/god_of_war_tools/files/mat"
 	"github.com/mogaika/god_of_war_tools/files/wad"
+	"github.com/mogaika/god_of_war_tools/utils"
 )
 
 type MeshPacket struct {
@@ -49,11 +50,8 @@ func init() {
 	wad.PregisterExporter(MESH_MAGIC, &Mesh{})
 }
 
-func NewFromData(rdat io.Reader, debug_file_name string, exlog io.Writer) (*Mesh, error) {
-	file, err := ioutil.ReadAll(rdat)
-	if err != nil {
-		return nil, err
-	}
+func newFromData1(file []byte, debug_file_name string, exlog io.Writer) (*Mesh, error) {
+	var err error
 
 	u32 := func(idx uint32) uint32 {
 		return binary.LittleEndian.Uint32(file[idx : idx+4])
@@ -154,6 +152,19 @@ func NewFromData(rdat io.Reader, debug_file_name string, exlog io.Writer) (*Mesh
 	return mesh, nil
 }
 
+func NewFromData(rdat io.Reader, game_verson int, debug_file_name string, exlog io.Writer) (*Mesh, error) {
+	file, err := ioutil.ReadAll(rdat)
+	if err != nil {
+		return nil, err
+	}
+
+	if game_verson == utils.GAME_VERSION_GOW_1 {
+		return newFromData1(file, debug_file_name, exlog)
+	} else {
+		return nil, errors.New("Unsupported game version")
+	}
+}
+
 func (ms *Mesh) ExtractObj(textures []string, outfname string, exlog io.Writer) ([]string, error) {
 	ofileName := outfname + ".obj"
 
@@ -210,23 +221,23 @@ func (ms *Mesh) ExtractObj(textures []string, outfname string, exlog io.Writer) 
 
 					swp := false
 					for _, mesh := range packet.Blocks {
-						uv := mesh.uvs != nil && len(mesh.uvs) == len(mesh.trias)
-						vn := mesh.norms != nil
-						if vn && len(mesh.norms) != len(mesh.trias) {
+						uv := mesh.Uvs != nil && len(mesh.Uvs) == len(mesh.Trias)
+						vn := mesh.Norms != nil
+						if vn && len(mesh.Norms) != len(mesh.Trias) {
 							vn = false
-							fmt.Fprintf(exlog, "Norm not match verts : %d vs %d\n", len(mesh.norms), len(mesh.trias))
+							fmt.Fprintf(exlog, "Norm not match verts : %d vs %d\n", len(mesh.Norms), len(mesh.Trias))
 						}
 
-						for i := range mesh.trias {
-							t := &mesh.trias[i]
+						for i := range mesh.Trias {
+							t := &mesh.Trias[i]
 
 							bufv += fmt.Sprintf("v %f %f %f\n", t.x, t.y, t.z)
 							if uv {
-								tx := &mesh.uvs[i]
+								tx := &mesh.Uvs[i]
 								bufvt += fmt.Sprintf("vt %f %f\n", tx.u, 1.0-tx.v)
 							}
 							if vn {
-								n := &mesh.norms[i]
+								n := &mesh.Norms[i]
 								bufvn += fmt.Sprintf("vn %f %f %f\n", n.x, n.y, n.z)
 							}
 
@@ -272,6 +283,103 @@ func (ms *Mesh) ExtractObj(textures []string, outfname string, exlog io.Writer) 
 					ofile.WriteString(bufvn)
 					fmt.Fprintf(ofile, "usemtl mat_%d\n", object.MaterialId)
 					ofile.WriteString(buff)
+				}
+			}
+		}
+	}
+
+	return []string{ofileName}, nil
+}
+
+func uniqueColor(i uint8) (uint8, uint8, uint8) {
+	fi := float32(i)
+	return uint8(fi * 73452.3), uint8((fi + 4543.5) * 45.4), uint8((fi - 34532.5) * 73.4)
+}
+
+func (ms *Mesh) ExtractPly(outfname string, exlog io.Writer) ([]string, error) {
+	ofileName := outfname + ".ply"
+
+	err := os.MkdirAll(path.Dir(ofileName), 0777)
+	if err != nil {
+		return nil, err
+	}
+
+	ofile, err := os.Create(ofileName)
+	if err != nil {
+		log.Fatalf("Cannot create file %s: %v", ofileName, err)
+	}
+	defer ofile.Close()
+
+	vertexes := 0
+	faces := 0
+
+	for _, part := range ms.Parts {
+		for _, group := range part.Groups {
+			for _, object := range group.Objects {
+				for _, packet := range object.Packets {
+					for _, mesh := range packet.Blocks {
+						vertexes += len(mesh.Trias)
+						for _, face := range mesh.Trias {
+							if !face.skip {
+								faces++
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	fmt.Fprintf(ofile, `ply
+format ascii 1.0
+comment Created by god_of_war tools exporter
+element vertex %d
+property float x
+property float y
+property float z
+property uchar red
+property uchar green
+property uchar blue
+element face %d
+property list uchar uint vertex_indices
+end_header
+`, vertexes, faces)
+
+	for _, part := range ms.Parts {
+		for _, group := range part.Groups {
+			for _, object := range group.Objects {
+				for _, packet := range object.Packets {
+					for _, mesh := range packet.Blocks {
+						for i, tria := range mesh.Trias {
+							fmt.Fprintf(ofile, "%f %f %f ", tria.x, tria.z, tria.y)
+							if mesh.Joints != nil {
+								r1, g1, b1 := uniqueColor(uint8(mesh.Joints[i] >> 8))
+								r2, g2, b2 := uniqueColor(uint8(mesh.Joints[i]))
+								fmt.Fprintf(ofile, "%d %d %d\n", r1/2+r2/2, g1/2+g2/2, b1/2+b2/2)
+								//fmt.Fprintf(ofile, "%d %d %d\n", mesh.Blend[i].r, mesh.Blend[i].g, mesh.Blend[i].b)
+							} else {
+								fmt.Fprintf(ofile, "0 0 0")
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	face_id := 0
+	for _, part := range ms.Parts {
+		for _, group := range part.Groups {
+			for _, object := range group.Objects {
+				for _, packet := range object.Packets {
+					for _, mesh := range packet.Blocks {
+						for _, tria := range mesh.Trias {
+							if !tria.skip {
+								fmt.Fprintf(ofile, "3 %d %d %d\n", face_id-2, face_id-1, face_id)
+							}
+							face_id++
+						}
+					}
 				}
 			}
 		}
@@ -331,12 +439,17 @@ func (*Mesh) ExtractFromNode(nd *wad.WadNode, outfname string) error {
 	}
 	defer logfile.Close()
 
-	mesh, err := NewFromData(reader, nd.Name, logfile)
+	mesh, err := NewFromData(reader, nd.Wad.Version, nd.Name, logfile)
 	if err != nil {
 		return err
 	}
 
 	resNames, err := mesh.ExtractObj(textures, outfname, logfile)
+	if err != nil {
+		return err
+	}
+
+	_, err = mesh.ExtractPly(outfname, logfile)
 	if err != nil {
 		return err
 	}
